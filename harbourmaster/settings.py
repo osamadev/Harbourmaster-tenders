@@ -209,22 +209,22 @@ def _layered_values(runtime_override: dict[str, Any] | None = None) -> tuple[dic
     for key in sorted(KNOWN_KEYS | SECRET_KEYS):
         if key not in os.environ or os.environ[key] == "":
             continue
-            raw = os.environ[key]
-            if key in {
-                "ELASTIC_ENABLED",
-                "MCP_ENABLED",
-                "MCP_PHOENIX_ENABLED",
-                "MCP_ELASTIC_ENABLED",
-                "NEGOTIATOR_INCLUDE_MEDIUM",
-                "RUNNING_IN_DOCKER",
-            }:
-                set_value(key, _as_bool(raw), "env")
-            elif key in {"PHOENIX_PORT", "MCP_LOAD_TIMEOUT_SEC", "VERIFIER_MAX_REVISIONS"}:
-                set_value(key, _as_int(raw, int(merged.get(key, 0))), "env")
-            elif key.endswith("_WEIGHT") or key == "REVIEW_RISK_THRESHOLD":
-                set_value(key, _as_float(raw, float(merged.get(key, 0.0))), "env")
-            else:
-                set_value(key, raw, "env")
+        raw = os.environ[key]
+        if key in {
+            "ELASTIC_ENABLED",
+            "MCP_ENABLED",
+            "MCP_PHOENIX_ENABLED",
+            "MCP_ELASTIC_ENABLED",
+            "NEGOTIATOR_INCLUDE_MEDIUM",
+            "RUNNING_IN_DOCKER",
+        }:
+            set_value(key, _as_bool(raw), "env")
+        elif key in {"PHOENIX_PORT", "MCP_LOAD_TIMEOUT_SEC", "VERIFIER_MAX_REVISIONS"}:
+            set_value(key, _as_int(raw, int(merged.get(key, 0))), "env")
+        elif key.endswith("_WEIGHT") or key == "REVIEW_RISK_THRESHOLD":
+            set_value(key, _as_float(raw, float(merged.get(key, 0.0))), "env")
+        else:
+            set_value(key, raw, "env")
 
     return merged, sources
 
@@ -394,6 +394,8 @@ def flat_config(snapshot: ResolvedSettings | None = None) -> dict[str, Any]:
         "GEMINI_BASE_URL": s.gemini_base_url,
         "GEMINI_ANALYST_MODEL": s.analyst_model,
         "GEMINI_DRAFTER_MODEL": s.drafter_model,
+        "ANALYST_MODEL": s.analyst_model,
+        "DRAFTER_MODEL": s.drafter_model,
         "PHOENIX_MODE": s.phoenix.mode,
         "ELASTIC_MODE": s.elastic.mode,
         "PHOENIX_BASE_URL": s.phoenix.api_base_url,
