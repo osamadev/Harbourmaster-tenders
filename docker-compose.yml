@@ -1,0 +1,101 @@
+services:
+  phoenix:
+    profiles: [local]
+    image: arizephoenix/phoenix:latest
+    environment:
+      PHOENIX_WORKING_DIR: /mnt/data
+    volumes:
+      - phoenix_data:/mnt/data
+    ports:
+      - "${PHOENIX_PORT:-6006}:6006"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:6006/healthz', timeout=3).read()"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - harbourmaster
+    restart: unless-stopped
+
+  elastic:
+    profiles: [local]
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.17.1
+    environment:
+      discovery.type: single-node
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD:-harbourmaster-elastic-local}
+      xpack.security.enabled: "true"
+      xpack.security.http.ssl.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    volumes:
+      - elastic_data:/usr/share/elasticsearch/data
+    ports:
+      - "${ELASTIC_PORT:-9200}:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -u elastic:$${ELASTIC_PASSWORD} http://localhost:9200/_cluster/health >/dev/null || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 20
+      start_period: 45s
+    networks:
+      - harbourmaster
+    restart: unless-stopped
+
+  ui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: streamlit run app/Home.py --server.address=0.0.0.0 --server.port=8501
+    environment:
+      RUNNING_IN_DOCKER: "1"
+      GEMINI_API_KEY: ${GEMINI_API_KEY:?set GEMINI_API_KEY in your env or --env-file}
+      GEMINI_BASE_URL: ${GEMINI_BASE_URL:-https://generativelanguage.googleapis.com/v1beta/openai}
+      GEMINI_ANALYST_MODEL: ${GEMINI_ANALYST_MODEL:-gemini-2.5-pro}
+      GEMINI_DRAFTER_MODEL: ${GEMINI_DRAFTER_MODEL:-gemini-2.5-flash}
+      REVIEW_RISK_THRESHOLD: ${REVIEW_RISK_THRESHOLD:-0.6}
+      PHOENIX_MODE: ${PHOENIX_MODE:-local}
+      ELASTIC_MODE: ${ELASTIC_MODE:-local}
+      PHOENIX_BASE_URL: ${PHOENIX_BASE_URL:-http://phoenix:6006}
+      PHOENIX_COLLECTOR_ENDPOINT: ${PHOENIX_COLLECTOR_ENDPOINT:-http://phoenix:6006/v1/traces}
+      PHOENIX_CONSOLE_URL: ${PHOENIX_CONSOLE_URL:-http://localhost:6006}
+      PHOENIX_PORT: ${PHOENIX_PORT:-6006}
+      PHOENIX_API_KEY: ${PHOENIX_API_KEY:-}
+      PHOENIX_PROJECT_NAME: ${PHOENIX_PROJECT_NAME:-harbourmaster}
+      ELASTIC_ENABLED: ${ELASTIC_ENABLED:-true}
+      ELASTIC_URL: ${ELASTIC_URL:-http://elastic:9200}
+      ELASTIC_USERNAME: ${ELASTIC_USERNAME:-elastic}
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD:-harbourmaster-elastic-local}
+      ELASTIC_API_KEY: ${ELASTIC_API_KEY:-}
+      ELASTIC_INDEX_PREFIX: ${ELASTIC_INDEX_PREFIX:-harbourmaster}
+      MCP_ENABLED: ${MCP_ENABLED:-true}
+      MCP_PHOENIX_ENABLED: ${MCP_PHOENIX_ENABLED:-true}
+      MCP_ELASTIC_ENABLED: ${MCP_ELASTIC_ENABLED:-true}
+      MCP_PHOENIX_PACKAGE: ${MCP_PHOENIX_PACKAGE:-@arizeai/phoenix-mcp@4.0.13}
+      MCP_ELASTIC_PACKAGE: ${MCP_ELASTIC_PACKAGE:-@elastic/mcp-server-elasticsearch@0.4.0}
+      MCP_LOAD_TIMEOUT_SEC: ${MCP_LOAD_TIMEOUT_SEC:-45}
+    ports:
+      - "${UI_PORT:-8501}:8501"
+    volumes:
+      - review_data:/app/data/reviews
+      - policy_data:/app/configs/corporate_policies
+      - config_data:/app/configs/runtime_settings
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8501/_stcore/health || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - harbourmaster
+    restart: unless-stopped
+
+networks:
+  harbourmaster:
+    driver: bridge
+
+volumes:
+  phoenix_data:
+  elastic_data:
+  review_data:
+  policy_data:
+  config_data:

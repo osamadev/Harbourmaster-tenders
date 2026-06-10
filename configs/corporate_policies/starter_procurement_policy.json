@@ -1,0 +1,12 @@
+{
+  "id": "starter-procurement-policy",
+  "title": "Starter Corporate Procurement Policy",
+  "version": "1.0",
+  "scope_tags": [
+    "compliance",
+    "legal",
+    "financial"
+  ],
+  "active": true,
+  "body": "1) Any single-source procurement above GBP 100,000 requires written justification and Head of Procurement approval.\n2) Payment terms shorter than 30 days require CFO approval unless mandated by law.\n3) Unlimited liability clauses are prohibited; aggregate liability must be capped.\n4) Background intellectual property ownership must remain with the originating party unless expressly approved by Legal.\n5) Any contract involving personal data must include documented security controls and breach-notification obligations."
+}

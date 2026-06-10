@@ -1,0 +1,20 @@
+# Harbourmaster control plane — Python dependencies.
+# `make install` also runs `pip install -e .` so the package is importable.
+langgraph>=0.3.0
+openai>=1.40.0
+fastapi>=0.110.0
+uvicorn>=0.27.0
+httpx>=0.27.0
+python-dotenv>=1.0.0
+pyyaml>=6.0
+streamlit>=1.36.0
+plotly>=5.20.0
+pandas>=2.2.0
+pypdf>=4.0.0
+arize-phoenix-otel>=0.6.0
+arize-phoenix-client>=1.0.0
+openinference-instrumentation-openai>=0.1.0
+openinference-instrumentation-langchain>=0.1.0
+langchain-mcp-adapters>=0.0.12
+langchain-openai>=0.2.0
+elasticsearch>=8.15.0,<9
