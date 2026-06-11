@@ -1,7 +1,7 @@
 # Harbourmaster
 
 <p align="center">
-  <img src="assets/cover.png" alt="Harbourmaster — governed tender review control plane" width="900"/>
+  <img src="assets/architecture.svg" alt="Harbourmaster — governed tender review control plane" width="900"/>
 </p>
 
 <p align="center">
@@ -13,7 +13,7 @@
   <a href="#quick-start">Quick start</a> ·
   <a href="#architecture">Architecture</a> ·
   <a href="#configuration">Configuration</a> ·
-  <a href="#deploy-to-a-vps">VPS deploy</a> ·
+  <a href="#remote-deployment">Remote deploy</a> ·
   <a href="#demo-flow">Demo</a>
 </p>
 
@@ -204,7 +204,7 @@ flowchart LR
 | `COMPOSE_PROFILES` | `local` (in `.env.docker`) | Start phoenix + elastic with ui |
 | `GEMINI_API_KEY` | — | Workflow + Copilot LLM calls |
 | `PHOENIX_BASE_URL` | `http://phoenix:6006` (Docker) | Server REST, OTLP, MCP |
-| `PHOENIX_CONSOLE_URL` | `http://localhost:6006` | Browser sidebar links (set to your **public VPS host** when remote) |
+| `PHOENIX_CONSOLE_URL` | `http://localhost:6006` | Browser sidebar links (set to your **public host** when deployed remotely) |
 | `PHOENIX_PROJECT_ID` | — | Phoenix UI `/projects/{id}` path (auto-resolved from name if unset) |
 | `PHOENIX_API_KEY` | — | Required when `PHOENIX_MODE=cloud` |
 | `ELASTIC_URL` | `http://elastic:9200` (Docker) | Native client + MCP |
@@ -248,25 +248,50 @@ cp .env.cloud.example .env.cloud
 make run-cloud
 ```
 
-## Deploy to a VPS
+## Remote deployment
 
-Phoenix and Elastic start automatically when `.env.docker` includes `COMPOSE_PROFILES=local`. Starting **only** `ui` without that profile leaves nothing listening on `phoenix:6006` / `elastic:9200`.
+Run the full stack on any machine reachable over the network—a cloud VM, bare-metal server, homelab host, or VPS. The same Compose file works locally and remotely; only env values and exposed ports change.
+
+**Prerequisites:** Docker and Docker Compose on the target host, outbound HTTPS for Gemini API calls, and firewall rules for the ports you publish.
+
+1. **Copy and edit env**
 
 ```bash
-cp .env.vps.example .env.docker
-# edit GEMINI_API_KEY
-# set PHOENIX_CONSOLE_URL=http://<your-vps-host>:6006
+cp .env.docker.example .env.docker
+# Required: GEMINI_API_KEY
+# Remote access: PHOENIX_CONSOLE_URL=http://<public-host-or-domain>:6006
+```
 
+For a minimal remote template, `.env.vps.example` is equivalent—copy either file to `.env.docker`.
+
+2. **Start the stack**
+
+Phoenix and Elastic start automatically when `COMPOSE_PROFILES=local` (included in the examples). Starting **only** `ui` without that profile leaves nothing listening on `phoenix:6006` / `elastic:9200`.
+
+```bash
 docker compose --env-file .env.docker up --build -d
 ```
 
-| Setting | VPS value | Why |
-|---------|-----------|-----|
-| `PHOENIX_BASE_URL` | `http://phoenix:6006` | Container-to-container |
-| `ELASTIC_URL` | `http://elastic:9200` | Container-to-container |
-| `PHOENIX_CONSOLE_URL` | `http://<public-host>:6006` | Browser links from your laptop |
+3. **Open the app**
 
-Open firewall ports **8501** (UI) and **6006** (Phoenix console). If a stale `runtime_config.json` still points at `localhost`, reset from the Configuration page or delete `configs/runtime_settings/runtime_config.json` on the server.
+| Endpoint | Default port | Notes |
+|----------|--------------|-------|
+| Streamlit UI | `8501` | Main reviewer workflow |
+| Phoenix console | `6006` | Traces and governance dashboard |
+
+Override ports with `UI_PORT`, `PHOENIX_PORT`, and `ELASTIC_PORT` in `.env.docker` if needed.
+
+**URL split (important on remote hosts):**
+
+| Setting | Remote value | Why |
+|---------|--------------|-----|
+| `PHOENIX_BASE_URL` | `http://phoenix:6006` | Container-to-container (keep Compose service names) |
+| `ELASTIC_URL` | `http://elastic:9200` | Container-to-container |
+| `PHOENIX_CONSOLE_URL` | `http://<public-host>:6006` | Links opened in your browser |
+
+Allow inbound traffic on the UI and Phoenix ports (or your custom `*_PORT` values). Elastic (`9200`) can stay internal unless you need direct access.
+
+**After deploy:** run `make config-check` on the server or open **Configuration** in the UI to confirm resolved URLs. If a stale `runtime_config.json` still points at `localhost`, reset from the Configuration page or delete `configs/runtime_settings/runtime_config.json` on the host.
 
 ## Streamlit application
 
@@ -325,15 +350,8 @@ harbourmaster/          # Core package
   settings.py           # Env + runtime config resolver
 app/                    # Streamlit UI pages
 configs/                # Policies, red-team cases, runtime overrides
-scripts/                # CLI runners, smoke tests, asset generators
-assets/                 # README cover & architecture diagrams
-```
-
-Regenerate marketing assets:
-
-```bash
-python scripts/build_cover_image.py      # assets/cover.png
-python scripts/build_overview_deck.py    # Harbourmaster_Overview.pptx
+scripts/                # CLI runners & smoke tests
+assets/                 # Architecture diagram (SVG)
 ```
 
 ## Challenge fit

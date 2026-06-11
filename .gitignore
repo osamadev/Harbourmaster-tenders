@@ -12,7 +12,15 @@ configs/runtime_settings/runtime_config.json
 .idea/
 .vscode/
 .env.cloud
-Harbourmaster_Overview.pptx
+.env.docker
+
+# Submission prep & local-only assets (keep on disk, not in git)
+SUBMISSION.md
+SUBMISSION_PREP.md
 LINKEDIN_PLAN.md
 VIDEO_SCRIPT.md
-.env.docker
+Harbourmaster_Overview.pptx
+scripts/build_cover_image.py
+scripts/build_overview_deck.py
+scripts/build_thumbnail.py
+assets/thumbnail.png
