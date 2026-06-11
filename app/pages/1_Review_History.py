@@ -14,6 +14,7 @@ _root = Path(__file__).resolve().parents[2]
 if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
+from app.utils.layout import init_page, render_app_sidebar  # noqa: E402
 from app.utils.render import (  # noqa: E402
     display_clauses,
     display_compliance_findings,
@@ -23,7 +24,6 @@ from app.utils.render import (  # noqa: E402
     display_specialist_findings,
     display_verifier_notes,
 )
-from harbourmaster import config  # noqa: E402
 from harbourmaster.reviews import delete_review, list_reviews, load_review  # noqa: E402
 
 
@@ -47,22 +47,20 @@ def _summary_markdown(review: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-st.set_page_config(page_title="Review History", page_icon="🗂️", layout="wide")
-
+init_page("Review History", icon="🗂️", subtitle="Browse, inspect, download, and manage saved contract reviews.")
 reviews = list_reviews()
 
-with st.sidebar:
-    st.markdown("### Review History")
+
+def _sidebar_extra() -> None:
     st.metric("Saved Reviews", len(reviews))
-    from app.utils.nav import render_sidebar_nav
 
-    render_sidebar_nav()
 
-st.title("Review History")
-st.caption("Browse, inspect, download, and manage saved contract review records.")
+render_app_sidebar("history", extra_blocks=_sidebar_extra)
 
 if not reviews:
-    st.info("No saved reviews yet. Complete a review on the Home page to populate history.")
+    st.info("No saved reviews yet. Complete a review on the Tender Review page to populate history.")
+    if hasattr(st, "page_link"):
+        st.page_link("Home.py", label="Go to Tender Review", icon="⚓")
     st.stop()
 
 decisions = [str(row.get("decision", "auto-approved")) for row in reviews]
@@ -115,12 +113,20 @@ for row in filtered:
 
 st.markdown("### Saved Reviews")
 df = pd.DataFrame(rows).sort_values(by="Created", ascending=False)
-st.dataframe(df, use_container_width=True, hide_index=True)
-selected_review_id = st.selectbox(
-    "Select Review",
-    options=df["Review ID"].tolist(),
-    index=0,
+selection = st.dataframe(
+    df,
+    use_container_width=True,
+    hide_index=True,
+    on_select="rerun",
+    selection_mode="single-row",
+    key="review_history_table",
 )
+
+selected_rows = selection.selection.rows if hasattr(selection, "selection") else []
+if selected_rows:
+    selected_review_id = df.iloc[selected_rows[0]]["Review ID"]
+else:
+    selected_review_id = df.iloc[0]["Review ID"]
 
 review = load_review(selected_review_id)
 st.divider()

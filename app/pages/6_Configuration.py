@@ -18,7 +18,7 @@ from app.utils.config_ui import (  # noqa: E402
     render_validation_results,
     secret_placeholder,
 )
-from app.utils.nav import render_sidebar_nav  # noqa: E402
+from app.utils.layout import init_page, render_app_sidebar  # noqa: E402
 from harbourmaster import config  # noqa: E402
 from harbourmaster.copilot.health import check_elastic, run_health_checks  # noqa: E402
 from harbourmaster.copilot.tools_mcp import reset_mcp_tools  # noqa: E402
@@ -30,18 +30,20 @@ from harbourmaster.runtime_config import (  # noqa: E402
 )
 from harbourmaster.settings import get_snapshot, preview_settings, reload, usable_secret, validate  # noqa: E402
 
-st.set_page_config(page_title="Configuration", page_icon="⚙️", layout="wide")
-st.title("Configuration")
-st.caption(
-    "Active values come from environment variables by default (local Phoenix + Elastic). "
-    "Saved runtime overrides apply only when a key is not set in the environment."
+init_page(
+    "Configuration",
+    icon="⚙️",
+    subtitle="Modes, credentials, and MCP settings — env vars override saved JSON.",
 )
-
 snapshot = get_snapshot()
 
-with st.sidebar:
-    st.markdown("### Configuration")
-    render_sidebar_nav()
+render_app_sidebar("configuration")
+
+if str(snapshot.raw.get("RUNNING_IN_DOCKER", "")).lower() in {"1", "true", "yes"}:
+    st.info(
+        "Running in Docker: environment variables override values saved here. "
+        "Use `.env.docker` on the server for production secrets."
+    )
 
 col_modes, col_status = st.columns([2, 1])
 with col_modes:

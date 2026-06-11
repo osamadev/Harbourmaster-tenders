@@ -14,33 +14,26 @@ _root = Path(__file__).resolve().parents[2]
 if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
+from app.utils.layout import init_page, render_app_sidebar  # noqa: E402
 from scripts.run_redteam import load_cases, run_case  # noqa: E402
-from harbourmaster import config  # noqa: E402
 
-st.set_page_config(page_title="Red-Team Scorecard", page_icon="🛡", layout="wide")
-st.title("Red-Team Scorecard")
-st.caption("Adversarial testing with guard verdicts and Phoenix experiment logging")
-
-# ---------------------------------------------------------------------------
-# Test case overview
-# ---------------------------------------------------------------------------
 cases = load_cases()
-st.markdown(f"**{len(cases)} test cases** loaded from `configs/redteam_cases.yaml`")
 
-with st.expander("View test cases"):
-    for case in cases:
-        st.markdown(
-            f"- **{case['name']}** ({case.get('category', 'N/A')}) — "
-            f"expected: `{case['expected_action']}` — {case.get('description', '')}"
-        )
+init_page(
+    "Red-Team Scorecard",
+    icon="🛡️",
+    subtitle="Adversarial testing with guard verdicts and Phoenix experiment logging",
+)
 
-st.divider()
+def _redteam_sidebar() -> None:
+    st.metric("Cases Loaded", len(cases))
+    results = st.session_state.get("redteam_results")
+    if results:
+        passed = sum(1 for r in results if r["passed"])
+        st.metric("Last Run", f"{passed}/{len(results)} passed")
 
-# ---------------------------------------------------------------------------
-# Run scorecard
-# ---------------------------------------------------------------------------
-if "redteam_results" not in st.session_state:
-    st.session_state.redteam_results = None
+
+render_app_sidebar("redteam", extra_blocks=_redteam_sidebar)
 
 if st.button("Run Scorecard", type="primary"):
     results = []
@@ -58,9 +51,20 @@ if st.button("Run Scorecard", type="primary"):
     st.session_state.redteam_results = results
     st.rerun()
 
-# ---------------------------------------------------------------------------
-# Display results
-# ---------------------------------------------------------------------------
+st.markdown(f"**{len(cases)} test cases** loaded from `configs/redteam_cases.yaml`")
+
+with st.expander("View test cases"):
+    for case in cases:
+        st.markdown(
+            f"- **{case['name']}** ({case.get('category', 'N/A')}) — "
+            f"expected: `{case['expected_action']}` — {case.get('description', '')}"
+        )
+
+st.divider()
+
+if "redteam_results" not in st.session_state:
+    st.session_state.redteam_results = None
+
 results = st.session_state.redteam_results
 
 if results is None:
@@ -108,7 +112,7 @@ results_df = pd.DataFrame(rows)
 st.dataframe(
     results_df.style.apply(
         lambda row: [
-            "background-color: #d4edda" if row["Status"] == "PASS" else "background-color: #f8d7da"
+            "background-color: #DCFCE7; color: #15803D" if row["Status"] == "PASS" else "background-color: #FEE2E2; color: #B91C1C"
         ] * len(row),
         axis=1,
     ),
@@ -148,9 +152,3 @@ for r in results:
         st.markdown(f"**Ingress Risk:** {r['ingress_risk']:.3f}")
         st.json(r["report"])
 
-with st.sidebar:
-    st.markdown("### Red-Team Scorecard")
-    st.metric("Cases Loaded", len(cases))
-    from app.utils.nav import render_sidebar_nav
-
-    render_sidebar_nav()

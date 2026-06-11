@@ -9,8 +9,8 @@ _root = Path(__file__).resolve().parents[2]
 if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
+from app.utils.layout import init_page, inject_theme_css, render_app_sidebar  # noqa: E402
 from harbourmaster.ingest import extract_text  # noqa: E402
-from harbourmaster import config  # noqa: E402
 from harbourmaster.policies import (  # noqa: E402
     ALLOWED_SCOPE_TAGS,
     active_policies,
@@ -20,10 +20,11 @@ from harbourmaster.policies import (  # noqa: E402
     save_policy,
 )
 
-st.set_page_config(page_title="Corporate Policies", page_icon="📚", layout="wide")
-st.title("Corporate Policies")
-st.caption("Define and maintain internal policy rules used by the compliance specialist.")
-
+init_page(
+    "Corporate Policies",
+    icon="📚",
+    subtitle="Define and maintain internal policy rules used by the compliance specialist.",
+)
 
 def _refresh() -> None:
     st.rerun()
@@ -31,6 +32,14 @@ def _refresh() -> None:
 
 policies = list_policies()
 active_count = len(active_policies())
+
+
+def _policies_sidebar() -> None:
+    st.metric("Stored Policies", len(policies))
+    st.metric("Active Policies", active_count)
+
+
+render_app_sidebar("policies", extra_blocks=_policies_sidebar)
 
 col1, col2 = st.columns(2)
 col1.metric("Stored policies", len(policies))
@@ -47,9 +56,16 @@ else:
         pid = policy.get("id", "policy")
         version = policy.get("version", "1.0")
         scopes = ", ".join(policy.get("scope_tags", [])) or "all"
-        status = "active" if policy.get("active") else "inactive"
-        with st.expander(f"{title} ({pid}) • v{version} • {status}"):
-            st.caption(f"Scope tags: {scopes}")
+        is_active = bool(policy.get("active"))
+        chip_cls = "hm-chip-ok" if is_active else "hm-chip-neutral"
+        status_label = "active" if is_active else "inactive"
+        inject_theme_css()
+        st.markdown(
+            f'**{title}** (`{pid}`) <span class="hm-chip {chip_cls}">{status_label}</span>',
+            unsafe_allow_html=True,
+        )
+        st.caption(f"v{version} · Scope: {scopes}")
+        with st.expander("View policy body", expanded=False):
             st.write(policy.get("body", ""))
 
             edit_col, del_col = st.columns(2)
@@ -132,11 +148,3 @@ if submitted:
         st.success(f"Saved policy `{saved['id']}`")
         st.session_state.pop("editing_policy_slug", None)
         _refresh()
-
-with st.sidebar:
-    st.markdown("### Corporate Policies")
-    st.metric("Stored Policies", len(policies))
-    st.metric("Active Policies", active_count)
-    from app.utils.nav import render_sidebar_nav
-
-    render_sidebar_nav()

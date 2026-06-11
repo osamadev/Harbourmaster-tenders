@@ -13,13 +13,9 @@ _root = Path(__file__).resolve().parents[2]
 if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
+from app.utils.layout import init_page, inject_theme_css, render_app_sidebar  # noqa: E402
 from app.utils.links import render_external_link  # noqa: E402
-from app.utils.nav import render_sidebar_nav  # noqa: E402
 from harbourmaster.copilot import CopilotMessage, chat, reset_agent, run_health_checks  # noqa: E402
-
-st.set_page_config(page_title="Governance Copilot", page_icon="🧭", layout="wide")
-st.title("Governance Copilot")
-st.caption("Chat over guard telemetry, saved reviews, procurement memory, and Phoenix experiments.")
 
 EXAMPLES = [
     "Summarize guard denial categories from recent Phoenix traces.",
@@ -31,6 +27,11 @@ EXAMPLES = [
 if "copilot_messages" not in st.session_state:
     st.session_state.copilot_messages: list[dict[str, Any]] = []
 
+init_page(
+    "Governance Copilot",
+    icon="🧭",
+    subtitle="Chat over guard telemetry, saved reviews, procurement memory, and Phoenix experiments.",
+)
 
 def _run_async(coro):
     loop = asyncio.new_event_loop()
@@ -52,35 +53,25 @@ def _to_history() -> list[CopilotMessage]:
     return rows
 
 
-with st.sidebar:
-    st.markdown("### Governance Copilot")
+def _copilot_sidebar() -> None:
     st.metric("Messages", len(st.session_state.copilot_messages))
-    render_sidebar_nav()
-
-    st.divider()
-    st.markdown("### Health")
     health = run_health_checks()
-    st.caption(
-        f"Phoenix mode: {health.get('phoenix_mode', 'local')} · "
-        f"Elastic mode: {health.get('elastic_mode', 'local')}"
-    )
-
+    inject_theme_css()
+    chips = []
     for name, check in [
         ("Phoenix", health["phoenix"]),
         ("Elastic", health["elastic"]),
-        ("Node/npx", health["node"]),
-        ("Gemini key", health["gemini"]),
+        ("Gemini", health["gemini"]),
     ]:
-        icon = "✅" if check.get("ok") else "⚠️"
-        st.markdown(f"{icon} **{name}** — {check.get('detail', '')}")
+        level = "ok" if check.get("ok") else "warn"
+        chips.append(f'<span class="hm-chip hm-chip-{level}">{name}</span>')
+    st.markdown('<div class="hm-chip-row">' + "".join(chips) + "</div>", unsafe_allow_html=True)
 
     mcp = health.get("mcp", {})
     if mcp.get("loaded"):
-        st.markdown(f"✅ **MCP** — {mcp.get('tool_count', 0)} tools loaded")
+        st.caption(f"MCP: {mcp.get('tool_count', 0)} tools loaded")
     elif mcp.get("error"):
-        st.markdown(f"ℹ️ **MCP** — lazy load ({mcp['error'][:80]})")
-    else:
-        st.markdown("ℹ️ **MCP** — loads on experiment/dataset questions")
+        st.caption(f"MCP: lazy load ({str(mcp['error'])[:60]})")
 
     if st.button("Clear conversation", use_container_width=True):
         st.session_state.copilot_messages = []
@@ -90,6 +81,9 @@ with st.sidebar:
     if st.button("Reset MCP connection", use_container_width=True):
         _run_async(reset_agent())
         st.success("MCP agent reset.")
+
+
+render_app_sidebar("copilot", extra_blocks=_copilot_sidebar)
 
 st.markdown("### Suggested prompts")
 cols = st.columns(2)

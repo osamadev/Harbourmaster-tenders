@@ -13,8 +13,11 @@ configs/runtime_settings/runtime_config.json
 .vscode/
 .env.cloud
 .env.docker
+.claude/
+.streamlit/
 
 # Submission prep & local-only assets (keep on disk, not in git)
+demo/
 SUBMISSION.md
 SUBMISSION_PREP.md
 LINKEDIN_PLAN.md

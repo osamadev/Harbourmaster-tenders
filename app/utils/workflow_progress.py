@@ -283,6 +283,7 @@ class WorkflowProgressTracker:
         )
         return {
             "current_step": current_label,
+            "fraction": self._fraction_done(),
             "revision_round": self.metrics.get("revision_round", 0),
             "specialists_done": self._specialists_done_count(),
             "specialists_total": len(SPECIALIST_KEYS),

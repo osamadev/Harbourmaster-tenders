@@ -11,24 +11,24 @@ _root = Path(__file__).resolve().parents[2]
 if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from utils.audit import load_dataframe  # noqa: E402
-from harbourmaster import config  # noqa: E402
+from app.utils.audit import load_dataframe  # noqa: E402
+from app.utils.layout import init_page, render_app_sidebar  # noqa: E402
 
-st.set_page_config(page_title="Governance Dashboard", page_icon="📊", layout="wide")
-st.title("Governance Dashboard")
-st.caption("Phoenix traces + span attributes — real-time governance visibility")
-
-# ---------------------------------------------------------------------------
-# Load data
-# ---------------------------------------------------------------------------
+init_page(
+    "Governance Dashboard",
+    icon="📊",
+    subtitle="Phoenix traces + span attributes — real-time governance visibility",
+)
 df = load_dataframe()
 
 if df.empty:
+    render_app_sidebar("dashboard")
     st.warning(
         "No Phoenix telemetry found yet. Run at least one contract review from "
         "the Tender Review page, then refresh this dashboard."
     )
+    if hasattr(st, "page_link"):
+        st.page_link("Home.py", label="Go to Tender Review", icon="⚓")
     st.stop()
 
 required_defaults = {
@@ -47,31 +47,33 @@ for col, default in required_defaults.items():
     if col not in df.columns:
         df[col] = default
 
-# ---------------------------------------------------------------------------
-# Sidebar filters
-# ---------------------------------------------------------------------------
-with st.sidebar:
-    from app.utils.nav import render_sidebar_nav
-
-    st.markdown("### Governance Dashboard")
-    render_sidebar_nav()
-    st.divider()
+def _dashboard_sidebar() -> None:
     st.markdown("### Filters")
-
     directions = sorted(df["direction"].dropna().unique().tolist())
-    sel_directions = st.multiselect("Direction", directions, default=directions)
-
+    st.session_state.dash_directions = st.multiselect(
+        "Direction", directions, default=directions, key="dash_dir"
+    )
     actions = sorted(df["action"].dropna().unique().tolist())
-    sel_actions = st.multiselect("Action", actions, default=actions)
-
+    st.session_state.dash_actions = st.multiselect(
+        "Action", actions, default=actions, key="dash_act"
+    )
     agents = sorted(df["agent_id"].dropna().unique().tolist())
-    sel_agents = st.multiselect("Agent ID", agents, default=agents)
-
-    min_risk = st.slider("Minimum risk score", 0.0, 1.0, 0.0, 0.05)
-
-    st.divider()
-    if st.button("Refresh data"):
+    st.session_state.dash_agents = st.multiselect(
+        "Agent ID", agents, default=agents, key="dash_agents_sel"
+    )
+    st.session_state.dash_min_risk = st.slider(
+        "Minimum risk score", 0.0, 1.0, 0.0, 0.05, key="dash_risk"
+    )
+    if st.button("Refresh data", use_container_width=True):
         st.rerun()
+
+
+render_app_sidebar("dashboard", extra_blocks=_dashboard_sidebar)
+
+sel_directions = st.session_state.get("dash_directions", sorted(df["direction"].dropna().unique().tolist()))
+sel_actions = st.session_state.get("dash_actions", sorted(df["action"].dropna().unique().tolist()))
+sel_agents = st.session_state.get("dash_agents", sorted(df["agent_id"].dropna().unique().tolist()))
+min_risk = st.session_state.get("dash_min_risk", 0.0)
 
 # Apply filters
 mask = (
@@ -91,9 +93,7 @@ guard_df = filtered[is_guard]
 guard_denied_count = len(filtered[is_guard & denied_mask])
 system_tool_denied_count = len(filtered[denied_mask & ~is_guard])
 
-# ---------------------------------------------------------------------------
-# Header metrics
-# ---------------------------------------------------------------------------
+st.markdown("### Overview")
 total = len(filtered)
 blocked = len(filtered[filtered["action"].isin(["DENY", "QUARANTINE"])])
 allowed = len(filtered[filtered["action"] == "ALLOW"])
@@ -112,10 +112,15 @@ c6.metric("Mismatches", int(mismatch_count))
 c7.metric("Risk-bearing Spans", risk_rows)
 
 st.divider()
+st.markdown("### Filters")
+f1, f2, f3, f4 = st.columns(4)
+f1.caption(f"Directions: {len(sel_directions)}")
+f2.caption(f"Actions: {len(sel_actions)}")
+f3.caption(f"Agents: {len(sel_agents)}")
+f4.caption(f"Min risk: {min_risk:.2f}")
 
-# ---------------------------------------------------------------------------
-# Charts
-# ---------------------------------------------------------------------------
+st.divider()
+st.markdown("### Charts")
 chart_left, chart_right = st.columns(2)
 
 with chart_left:
@@ -136,7 +141,7 @@ with chart_left:
         color="Action",
         color_discrete_map=colour_map,
     )
-    fig_pie.update_layout(margin=dict(t=10, b=10, l=10, r=10))
+    fig_pie.update_layout(template="plotly_white", margin=dict(t=10, b=10, l=10, r=10))
     st.plotly_chart(fig_pie, use_container_width=True)
 
 with chart_right:
@@ -152,7 +157,7 @@ with chart_right:
             barmode="overlay",
             labels={"risk_score": "Risk Score"},
         )
-        fig_hist.update_layout(margin=dict(t=10, b=10, l=10, r=10))
+        fig_hist.update_layout(template="plotly_white", margin=dict(t=10, b=10, l=10, r=10))
         st.plotly_chart(fig_hist, use_container_width=True)
 
 def _category_counts(frame: pd.DataFrame) -> dict[str, int]:
@@ -198,7 +203,7 @@ else:
             color="Count",
             color_continuous_scale="Reds",
         )
-        fig_bar.update_layout(margin=dict(t=10, b=10, l=10, r=10), showlegend=False)
+        fig_bar.update_layout(template="plotly_white", margin=dict(t=10, b=10, l=10, r=10), showlegend=False)
         st.plotly_chart(fig_bar, use_container_width=True)
     else:
         st.info("No guard spans with categories in the current filter.")
@@ -215,7 +220,7 @@ if "timestamp" in risk_filtered.columns and risk_filtered["timestamp"].notna().a
         hover_data=["agent_id", "direction", "rule_name"],
         labels={"timestamp": "Time", "risk_score": "Risk Score"},
     )
-    fig_timeline.update_layout(margin=dict(t=10, b=10, l=10, r=10))
+    fig_timeline.update_layout(template="plotly_white", margin=dict(t=10, b=10, l=10, r=10))
     st.plotly_chart(fig_timeline, use_container_width=True)
 else:
     st.info("No risk-bearing timeline points for this filter.")

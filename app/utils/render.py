@@ -12,6 +12,65 @@ def risk_label(level: str) -> str:
     return f"{colours.get(level, '⚪')} {level}"
 
 
+def risk_meter(value: float | None, threshold: float = 0.6) -> str:
+    """Return an HTML risk meter: track + banded fill + threshold tick + value.
+
+    Colour bands: low (<0.4) green, medium (<0.7) amber, high red. Relies on the
+    ``.hm-meter*`` classes injected by ``layout.inject_theme_css``.
+    """
+    try:
+        val = max(0.0, min(1.0, float(value)))
+    except (TypeError, ValueError):
+        return ""
+    colour = "#16A34A" if val < 0.4 else "#D97706" if val < 0.7 else "#DC2626"
+    pct = val * 100
+    tick = max(0.0, min(1.0, threshold)) * 100
+    return (
+        '<div class="hm-meter">'
+        '<span class="hm-meter-cap">Risk</span>'
+        '<div class="hm-meter-track">'
+        f'<div class="hm-meter-fill" style="width:{pct:.1f}%;background:{colour};"></div>'
+        f'<div class="hm-meter-tick" style="left:{tick:.1f}%;" title="threshold"></div>'
+        "</div>"
+        f'<span class="hm-meter-val">{val:.2f}</span>'
+        "</div>"
+    )
+
+
+def render_risk_meter(value: float | None, threshold: float = 0.6) -> None:
+    html = risk_meter(value, threshold)
+    if html:
+        st.markdown(html, unsafe_allow_html=True)
+
+
+def risk_chip(level: str) -> str:
+    cls = {
+        "high": "hm-chip-error",
+        "medium": "hm-chip-warn",
+        "low": "hm-chip-ok",
+    }.get(str(level).lower(), "hm-chip-neutral")
+    return f'<span class="hm-chip {cls}">{level}</span>'
+
+
+def status_chip(action: str) -> str:
+    cls = {
+        "ALLOW": "hm-chip-ok",
+        "HUMAN_REVIEW": "hm-chip-warn",
+        "DENY": "hm-chip-error",
+        "QUARANTINE": "hm-chip-error",
+        "LOG": "hm-chip-neutral",
+    }.get(str(action).upper(), "hm-chip-neutral")
+    return f'<span class="hm-chip {cls}">{action}</span>'
+
+
+def render_risk_chip(level: str) -> None:
+    st.markdown(risk_chip(level), unsafe_allow_html=True)
+
+
+def render_status_chip(action: str) -> None:
+    st.markdown(status_chip(action), unsafe_allow_html=True)
+
+
 def display_clauses(clauses: list[dict[str, Any]]) -> None:
     if not clauses:
         st.info("No clause segmentation available.")
@@ -130,10 +189,11 @@ def display_inspection_reports(reports: list[dict[str, Any]]) -> None:
     for i, report in enumerate(reports, 1):
         verdict = report.get("verdict", "UNKNOWN")
         with st.expander(f"Inspection Report #{i} — Verdict: {verdict}"):
+            st.markdown(status_chip(verdict), unsafe_allow_html=True)
             col1, col2 = st.columns(2)
             with col1:
                 st.markdown("**Governance**")
-                st.metric("Risk Score", f"{float(report.get('risk_score', 0.0)):.2f}")
+                render_risk_meter(float(report.get("risk_score", 0.0)))
                 categories = report.get("categories", [])
                 st.write(f"Categories: {', '.join(categories) if categories else 'none'}")
                 if report.get("reason"):

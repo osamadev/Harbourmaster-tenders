@@ -61,8 +61,12 @@ def render_resolved_summary(snapshot: ResolvedSettings) -> None:
 
 
 def render_field_sources(sources: dict[str, str], keys: list[str]) -> None:
-    rows = [{"key": key, "source": sources.get(key, "default")} for key in keys]
-    st.dataframe(rows, use_container_width=True, hide_index=True)
+    for key in keys:
+        source = sources.get(key, "default")
+        cols = st.columns([2, 1])
+        cols[0].markdown(f"`{key}`")
+        with cols[1]:
+            render_source_badge(source)
 
 
 def field_source(snapshot: ResolvedSettings, key: str) -> str:

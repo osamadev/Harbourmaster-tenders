@@ -1,3 +1,11 @@
 [client]
 # Custom sidebar nav in app/utils/nav.py (avoids duplicate page links).
 showSidebarNavigation = false
+
+[theme]
+base = "light"
+primaryColor = "#0EA5A4"
+backgroundColor = "#F6F8FB"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#0F2742"
+font = "sans serif"
