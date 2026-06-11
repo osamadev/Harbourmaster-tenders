@@ -1,123 +1,283 @@
 # Harbourmaster
 
-Harbourmaster is a governed, multi-agent tender review control plane built with Gemini and LangGraph. It uses **Arize Phoenix** for observability/evaluation and **Elastic** for searchable procurement memory over policies, tenders, clauses, red-team prompts, and review artifacts.
+<p align="center">
+  <img src="assets/cover.png" alt="Harbourmaster — governed tender review control plane" width="900"/>
+</p>
 
-## What changed in this refactor
+<p align="center">
+  <strong>Governed multi-agent tender &amp; contract review control plane</strong><br/>
+  Gemini · LangGraph · Arize Phoenix · Elasticsearch
+</p>
 
-- Replaced external proxy firewall with inline guard (`guard.py`) and Phoenix telemetry.
-- Added inline `guard.py` evaluator (`ALLOW | HUMAN_REVIEW | DENY`) before workflow execution.
-- Routed all model calls directly to Gemini's OpenAI-compatible endpoint.
-- Added Phoenix OpenInference tracing bootstrap (`telemetry.py`).
-- Replaced file-based audit model with Phoenix trace/span-backed dashboard ingestion.
-- Added Governance Copilot page backed by `@arizeai/phoenix-mcp`.
-- Added Elastic MCP and persistent local Elasticsearch for policy/precedent search.
-- Updated Docker Compose to `ui + phoenix + elastic` (self-hosted by default, cloud via env).
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#architecture">Architecture</a> ·
+  <a href="#configuration">Configuration</a> ·
+  <a href="#deploy-to-a-vps">VPS deploy</a> ·
+  <a href="#demo-flow">Demo</a>
+</p>
+
+---
+
+Harbourmaster is a production-style governance layer for agentic procurement workflows. It reviews uploaded tenders with **five parallel specialist agents**, pauses for **human-in-the-loop** approval when risk is high, persists precedents in **Elasticsearch**, and streams every model call to **Arize Phoenix** for audit and evaluation.
+
+## Why Harbourmaster
+
+| Problem | How Harbourmaster addresses it |
+|---------|--------------------------------|
+| Prompt injection & unsafe inputs | Inline **guard** scores every prompt/response (`ALLOW` · `HUMAN_REVIEW` · `DENY`) |
+| Generic models ignore corporate policy | Specialist agents + Elastic retrieval over indexed policies |
+| No audit trail for agent decisions | OpenInference traces, governance dashboard, red-team experiments |
+| Fully autonomous vs. manual review | LangGraph **interrupt/resume** — humans approve only when needed |
+| Opaque multi-agent flows | Phoenix MCP + Governance Copilot for traces, datasets, and search |
 
 ## Architecture
 
-```text
-Tender input -> Guard evaluator -> LangGraph specialists -> Human review (if needed) -> Draft summary
-                      |                           |                         |
-                      +---- inspection reports ---+                         +-> Elastic review memory
+<p align="center">
+  <img src="assets/architecture.svg" alt="Harbourmaster system architecture diagram" width="900"/>
+</p>
 
-Every model call + workflow activity -> OpenInference -> Arize Phoenix
-Policies/samples/red-team cases/review outputs -> Elasticsearch
-Governance Copilot uses Phoenix MCP for traces/evals and Elastic MCP for search.
+### High-level data flow
+
+```mermaid
+flowchart LR
+    subgraph Input
+        T[Tender upload]
+    end
+
+    subgraph Governance["Governance layers"]
+        G[Inline guard]
+        W[LangGraph workflow]
+    end
+
+    subgraph Agents["Specialist agents"]
+        L[Legal]
+        F[Financial]
+        D[Delivery]
+        I[IP &amp; data]
+        C[Compliance]
+    end
+
+    subgraph Platform
+        GM[Gemini API]
+        PH[Phoenix OTLP]
+        ES[Elasticsearch]
+        HR[Human reviewer]
+    end
+
+    T --> G --> W
+    W --> L
+    W --> F
+    W --> D
+    W --> I
+    W --> C
+    L --> GM
+    F --> GM
+    D --> GM
+    I --> GM
+    C --> GM
+    W --> PH
+    W --> ES
+    W -.->|risk threshold| HR
+    HR --> W
 ```
 
-## Prerequisites
+### LangGraph workflow
 
-- Python 3.10+
-- Node 18+ (for `npx @arizeai/phoenix-mcp` and `npx @elastic/mcp-server-elasticsearch`)
-- Gemini API key
-- Docker + Docker Compose (for self-hosted Phoenix and Elasticsearch)
+```mermaid
+flowchart TD
+    START([Start]) --> SEG[Segment clauses + guard]
+    SEG --> SPEC[5 specialist analyses in parallel]
+    SPEC --> AGG[Aggregate risk]
+    AGG --> VER[Verifier revision loop]
+    VER -->|revisions pending| REV[Revision pass]
+    REV --> SPEC
+    VER --> GOV{Governance route}
+    GOV -->|low risk| NEG[Negotiate counter-clauses]
+    GOV -->|high risk| HITL[Human interrupt]
+    HITL --> NEG
+    NEG --> DRAFT[Draft summary]
+    DRAFT --> END([End + Elastic persist])
+```
 
-## Environment and modes
+### Two governance layers
 
-Settings merge in this order: **defaults → `configs/runtime_settings/runtime_config.json` (optional UI overrides) → environment variables (highest precedence)**. Local Phoenix + Elastic are the default modes; set keys in `.env` / `.env.docker`.
+```mermaid
+flowchart TB
+    subgraph L1["Layer 1 — Inline guard (security)"]
+        G1[LLM-as-judge on every input/output]
+        G2[Verdict: ALLOW · HUMAN_REVIEW · DENY]
+    end
 
-Per-service deployment modes:
+    subgraph L2["Layer 2 — Workflow governor (business risk)"]
+        W1[Specialist risk scoring]
+        W2[Policy alignment via Elastic]
+        W3[HITL when overall_risk ≥ threshold]
+    end
 
-| Variable | Values | Purpose |
-|----------|--------|---------|
-| `PHOENIX_MODE` | `local` / `cloud` | Self-hosted Phoenix vs Phoenix Cloud |
-| `ELASTIC_MODE` | `local` / `cloud` | Compose Elasticsearch vs Elastic Cloud |
-| `MCP_ENABLED` | `true` / `false` | Master switch for Governance Copilot MCP subprocesses |
-| `MCP_PHOENIX_ENABLED` | `true` / `false` | Phoenix MCP server (`@arizeai/phoenix-mcp`) |
-| `MCP_ELASTIC_ENABLED` | `true` / `false` | Elastic MCP server (native Elastic search tools still work when false) |
+    L1 --> L2
+```
 
-Copy `.env.example` to `.env` for local development, or `.env.docker` for Compose (`cp .env.docker.example .env.docker`).
+| Layer | Decides | Example |
+|-------|---------|---------|
+| **Inline guard** | Is this input/output an attack or policy violation? | Prompt injection in tender PDF text |
+| **Workflow governor** | Is this clause commercially risky for our org? | High-risk indemnity → pause for lawyer |
 
-Key URLs and secrets:
+## Partner integrations
 
-- `GEMINI_API_KEY` — Copilot and workflow LLM calls
-- `PHOENIX_BASE_URL` — server-side REST, OTLP, MCP (`http://phoenix:6006` in Docker local mode)
-- `PHOENIX_CONSOLE_URL` — browser links (`http://localhost:6006` from host)
-- `PHOENIX_API_KEY` — required when `PHOENIX_MODE=cloud`
-- `ELASTIC_URL` — native client + MCP (`http://elastic:9200` in Docker local mode)
-- `ELASTIC_API_KEY` — required when `ELASTIC_MODE=cloud`
+### Arize Phoenix — observability & evaluation
 
-Validate resolved settings:
+- OpenInference tracing for every `GovernedLLM` call
+- Governance dashboard fed from Phoenix spans
+- Red-team suite synced as dataset/experiment metadata
+- Governance Copilot via `@arizeai/phoenix-mcp` (traces, prompts, experiments)
+
+### Elastic — procurement memory
+
+- Indexes: policies, sample tenders, red-team prompts, review summaries, counter-clauses
+- Retrieval injected into specialist analysis (clause-level evidence preserved)
+- Governance Copilot via `@elastic/mcp-server-elasticsearch`
+
+## Quick start
+
+### Prerequisites
+
+| Requirement | Version / notes |
+|-------------|-----------------|
+| Python | 3.10+ |
+| Node.js | 18+ (`npx` for MCP servers) |
+| Docker + Compose | Self-hosted Phoenix & Elastic (default) |
+| Gemini API key | [Google AI Studio](https://aistudio.google.com/apikey) |
+
+### 1. Install (local dev without Docker)
+
+```bash
+cp .env.example .env          # add GEMINI_API_KEY
+make install
+make config-check
+make ui                         # http://localhost:8501
+```
+
+### 2. Run full stack (recommended)
+
+```bash
+cp .env.docker.example .env.docker   # add GEMINI_API_KEY
+make run                             # ui + phoenix + elastic
+```
+
+`make run` is equivalent to:
+
+```bash
+docker compose --env-file .env.docker up --build
+```
+
+`.env.docker` sets `COMPOSE_PROFILES=local` so **ui**, **phoenix**, and **elastic** all start — no `--profile` flag needed.
+
+| Service | URL (from host) |
+|---------|-----------------|
+| Streamlit UI | http://localhost:8501 |
+| Phoenix console | http://localhost:6006 |
+| Elasticsearch | http://localhost:9200 |
+
+### 3. Smoke test
+
+```bash
+make smoke
+make smoke-copilot
+make config-check
+```
+
+## Configuration
+
+Settings merge in this order (highest wins last):
+
+```mermaid
+flowchart LR
+    D[Built-in defaults<br/>local modes] --> R[runtime_config.json<br/>optional UI overrides]
+    R --> E[Environment variables<br/>.env / .env.docker]
+```
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `PHOENIX_MODE` | `local` | Self-hosted Phoenix vs Phoenix Cloud |
+| `ELASTIC_MODE` | `local` | Compose Elasticsearch vs Elastic Cloud |
+| `COMPOSE_PROFILES` | `local` (in `.env.docker`) | Start phoenix + elastic with ui |
+| `GEMINI_API_KEY` | — | Workflow + Copilot LLM calls |
+| `PHOENIX_BASE_URL` | `http://phoenix:6006` (Docker) | Server REST, OTLP, MCP |
+| `PHOENIX_CONSOLE_URL` | `http://localhost:6006` | Browser sidebar links |
+| `PHOENIX_API_KEY` | — | Required when `PHOENIX_MODE=cloud` |
+| `ELASTIC_URL` | `http://elastic:9200` (Docker) | Native client + MCP |
+| `ELASTIC_API_KEY` | — | Required when `ELASTIC_MODE=cloud` |
+| `MCP_ENABLED` | `true` | Master switch for Copilot MCP subprocesses |
+| `MCP_PHOENIX_ENABLED` | `true` | `@arizeai/phoenix-mcp` |
+| `MCP_ELASTIC_ENABLED` | `true` | `@elastic/mcp-server-elasticsearch` |
+
+Use the **Configuration** page (`6_Configuration.py`) to preview resolved values, validate, and export an `.env` snippet. Environment variables always override saved runtime JSON.
 
 ```bash
 make config-check
 ```
 
-## Run
+### Deployment modes
 
-```bash
-make install
-make run            # ui + phoenix + elastic (COMPOSE_PROFILES=local in .env.docker)
-make smoke          # Gemini + guard + workflow smoke checks
-make smoke-copilot  # copilot health + native tool path
-make config-check   # resolved settings + validation
-make demo           # CLI tender review workflow
-make ui             # local Streamlit UI
-make redteam        # adversarial suite + Phoenix experiment sync
-make index-elastic  # seed policies, sample tenders, and red-team prompts into Elastic
+```mermaid
+flowchart TB
+    subgraph Local["Local (default)"]
+        L1[ui container]
+        L2[phoenix container]
+        L3[elastic container]
+        L1 --- L2
+        L1 --- L3
+    end
+
+    subgraph Cloud["Cloud / hybrid"]
+        C1[ui container only]
+        C2[Phoenix Cloud]
+        C3[Elastic Cloud]
+        C1 --> C2
+        C1 --> C3
+    end
 ```
 
-Cloud / hybrid (UI-only Compose stack):
+**Cloud / UI-only stack:**
 
 ```bash
 cp .env.cloud.example .env.cloud
-# fill PHOENIX_API_KEY and optional ELASTIC_API_KEY
+# fill PHOENIX_API_KEY and ELASTIC_API_KEY
 make run-cloud
 ```
 
-## Deploy to a VPS (self-hosted stack)
+## Deploy to a VPS
 
-Phoenix and Elastic start automatically when `.env.docker` sets `COMPOSE_PROFILES=local` (the default in `.env.docker.example`). Starting **only** `ui` without that profile leaves nothing listening on `phoenix:6006` / `elastic:9200`.
+Phoenix and Elastic start automatically when `.env.docker` includes `COMPOSE_PROFILES=local`. Starting **only** `ui` without that profile leaves nothing listening on `phoenix:6006` / `elastic:9200`.
 
 ```bash
-cp .env.docker.example .env.docker
-# edit GEMINI_API_KEY and set PHOENIX_CONSOLE_URL to your public VPS host, e.g.:
-# PHOENIX_CONSOLE_URL=http://203.0.113.10:6006
+cp .env.vps.example .env.docker
+# edit GEMINI_API_KEY
+# set PHOENIX_CONSOLE_URL=http://<your-vps-host>:6006
 
 docker compose --env-file .env.docker up --build -d
 ```
 
-Keep **server-side** URLs on the Docker network (do not change these for VPS):
+| Setting | VPS value | Why |
+|---------|-----------|-----|
+| `PHOENIX_BASE_URL` | `http://phoenix:6006` | Container-to-container |
+| `ELASTIC_URL` | `http://elastic:9200` | Container-to-container |
+| `PHOENIX_CONSOLE_URL` | `http://<public-host>:6006` | Browser links from your laptop |
 
-- `PHOENIX_BASE_URL=http://phoenix:6006`
-- `ELASTIC_URL=http://elastic:9200`
+Open firewall ports **8501** (UI) and **6006** (Phoenix console). If a stale `runtime_config.json` still points at `localhost`, reset from the Configuration page or delete `configs/runtime_settings/runtime_config.json` on the server.
 
-Set **browser** URL separately:
+## Streamlit application
 
-- `PHOENIX_CONSOLE_URL=http://<your-vps-host>:6006`
-
-Open firewall ports `8501` (UI), `6006` (Phoenix console), and optionally `9200`. If you used the Configuration page locally, delete or fix `configs/runtime_settings/runtime_config.json` on the VPS when it still points at `localhost`.
-
-For a UI-only VPS with managed Phoenix/Elastic, use `make run-cloud` and `.env.cloud` instead.
-
-## Streamlit pages
-
-- `Home.py`: reviewer workflow and HITL controls
-- `2_Governance_Dashboard.py`: Phoenix telemetry dashboard
-- `3_Red_Team_Scorecard.py`: adversarial scorecard
-- `4_Corporate_Policies.py`: policy management
-- `5_Governance_Copilot.py`: MCP-driven governance copilot
-- `6_Configuration.py`: modes, credentials, MCP toggles, validation, and runtime overrides
+| Page | Route | Description |
+|------|-------|-------------|
+| Home | `/` | Upload tender, run workflow, HITL approve/reject |
+| Review History | `/1_Review_History` | Past review artifacts |
+| Governance Dashboard | `/2_Governance_Dashboard` | Phoenix telemetry & guard spans |
+| Red Team Scorecard | `/3_Red_Team_Scorecard` | Adversarial test results |
+| Corporate Policies | `/4_Corporate_Policies` | Manage procurement policies |
+| Governance Copilot | `/5_Governance_Copilot` | Chat over traces + Elastic search (native + MCP) |
+| Configuration | `/6_Configuration` | Modes, credentials, validation, env export |
 
 ## Demo flow
 
@@ -128,17 +288,61 @@ make demo SAMPLE=data/sample_tender_human_review.md
 make redteam
 ```
 
-Then open **Governance Copilot** and ask:
+Then open **Governance Copilot** and try:
 
 - “Find similar high-risk indemnity clauses from prior tenders.”
 - “Which policy passages support escalating this clause?”
 - “Show precedent counter-clauses for IP ownership risk.”
 - “Show the latest red-team experiment and key failures.”
 
+## Make targets
+
+| Command | What it does |
+|---------|--------------|
+| `make install` | Install Python deps + editable package |
+| `make run` | Docker: ui + phoenix + elastic |
+| `make run-cloud` | Docker: ui only (cloud backends) |
+| `make ui` | Local Streamlit (no Docker) |
+| `make demo` | CLI end-to-end tender review |
+| `make redteam` | Adversarial suite + Phoenix experiment sync |
+| `make index-elastic` | Seed Elastic with policies & samples |
+| `make smoke` | Gemini + guard + graph smoke test |
+| `make smoke-copilot` | Copilot health + native tools |
+| `make config-check` | Print resolved settings + validation |
+| `make dashboard` | Print Phoenix console & UI URLs |
+
+## Project layout
+
+```text
+harbourmaster/          # Core package
+  graph.py              # LangGraph workflow
+  agents.py             # Specialists, segmenter, negotiator
+  guard.py              # Inline ALLOW/HUMAN_REVIEW/DENY evaluator
+  telemetry.py          # Phoenix OpenInference bootstrap
+  elastic_store.py      # Indexing & retrieval
+  copilot/              # Governance Copilot (native + MCP tools)
+  settings.py           # Env + runtime config resolver
+app/                    # Streamlit UI pages
+configs/                # Policies, red-team cases, runtime overrides
+scripts/                # CLI runners, smoke tests, asset generators
+assets/                 # README cover & architecture diagrams
+```
+
+Regenerate marketing assets:
+
+```bash
+python scripts/build_cover_image.py      # assets/cover.png
+python scripts/build_overview_deck.py    # Harbourmaster_Overview.pptx
+```
+
 ## Challenge fit
 
-- Real-world multi-step business workflow (tender governance)
-- Human-in-the-loop checkpoint via LangGraph interrupt
-- Meaningful partner MCP usage through Phoenix Copilot/telemetry workflows
-- Elastic MCP adds enterprise semantic search over procurement knowledge
-- Dataset/experiment loop for red-team regression checks
+- **Real-world workflow** — multi-step procurement / tender governance
+- **Human control** — LangGraph interrupt/resume at configurable risk threshold
+- **Partner MCP depth** — Phoenix MCP for traces/evals; Elastic MCP for precedent search
+- **Evaluation loop** — red-team datasets & experiments in Phoenix
+- **Deployable** — local Compose by default, cloud/hybrid via env modes
+
+## License
+
+See [LICENSE](LICENSE).
