@@ -10,12 +10,7 @@ from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
-from harbourmaster.runtime_config import (
-    SECRET_KEYS,
-    apply_runtime_to_environ,
-    load_runtime_config,
-    secret_is_set,
-)
+from harbourmaster.runtime_config import SECRET_KEYS, load_runtime_config, secret_is_set
 
 load_dotenv()
 
@@ -165,7 +160,10 @@ class ResolvedSettings:
 
 
 def _layered_values(runtime_override: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, str]]:
-    """Build merged config with per-key source tracking."""
+    """Build merged config with per-key source tracking.
+
+    Precedence (lowest to highest): built-in defaults → runtime JSON → environment variables.
+    """
     sources: dict[str, str] = {}
     merged: dict[str, Any] = {}
 
@@ -327,7 +325,6 @@ def resolve_settings(runtime_override: dict[str, Any] | None = None) -> Resolved
 def get_snapshot() -> ResolvedSettings:
     global _snapshot
     if _snapshot is None:
-        apply_runtime_to_environ(load_runtime_config())
         _snapshot = resolve_settings()
     return _snapshot
 
@@ -337,7 +334,6 @@ def reload() -> ResolvedSettings:
     global _snapshot
     _snapshot = None
     load_dotenv(override=True)
-    apply_runtime_to_environ(load_runtime_config())
     _snapshot = resolve_settings()
     try:
         from harbourmaster import config as legacy_config

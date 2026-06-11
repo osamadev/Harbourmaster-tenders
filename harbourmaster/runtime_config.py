@@ -94,7 +94,11 @@ def export_env_snippet(values: dict[str, Any]) -> str:
 
 
 def apply_runtime_to_environ(runtime: dict[str, Any]) -> None:
-    """Apply runtime overrides to os.environ when env does not already define them."""
+    """Apply runtime overrides to os.environ when env does not already define them.
+
+    Not used on startup — harbourmaster.settings resolves defaults → runtime → env
+    directly. Kept for optional tooling that expects os.environ to be populated.
+    """
     for key, value in runtime.items():
         if os.environ.get(key):
             continue

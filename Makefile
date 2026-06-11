@@ -3,7 +3,7 @@
 help:
 	@echo "Harbourmaster — make targets"
 	@echo "  make install    Install Python deps + the harbourmaster package"
-	@echo "  make run        Start local Phoenix + Harbourmaster UI via docker compose"
+	@echo "  make run        Start ui + phoenix + elastic via docker compose (.env.docker)"
 	@echo "  make run-cloud  Start Harbourmaster UI only (use PHOENIX_BASE_URL for cloud)"
 	@echo "  make smoke      Verify Gemini + guard + graph flow"
 	@echo "  make smoke-copilot  Verify copilot health + native tool path"
@@ -21,7 +21,7 @@ install:
 	pip install -e .
 
 run:
-	docker compose --profile local --env-file .env.docker up --build
+	docker compose --env-file .env.docker up --build
 
 run-cloud:
 	docker compose --env-file .env.cloud up --build ui

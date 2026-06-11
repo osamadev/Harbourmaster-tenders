@@ -85,6 +85,13 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+    depends_on:
+      phoenix:
+        condition: service_healthy
+        required: false
+      elastic:
+        condition: service_healthy
+        required: false
     networks:
       - harbourmaster
     restart: unless-stopped

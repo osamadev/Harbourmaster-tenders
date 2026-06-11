@@ -12,9 +12,11 @@ if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
 from app.utils.config_ui import (  # noqa: E402
+    field_source,
     render_field_sources,
     render_resolved_summary,
     render_validation_results,
+    secret_placeholder,
 )
 from app.utils.links import render_phoenix_console_link  # noqa: E402
 from app.utils.nav import render_sidebar_nav  # noqa: E402
@@ -26,17 +28,17 @@ from harbourmaster.runtime_config import (  # noqa: E402
     export_env_snippet,
     load_runtime_config,
     save_runtime_config,
-    to_public_view,
 )
-from harbourmaster.settings import get_snapshot, preview_settings, reload, validate  # noqa: E402
+from harbourmaster.settings import get_snapshot, preview_settings, reload, usable_secret, validate  # noqa: E402
 
 st.set_page_config(page_title="Configuration", page_icon="⚙️", layout="wide")
 st.title("Configuration")
-st.caption("Manage Phoenix, Elastic, MCP, and Gemini settings. Environment variables override saved runtime values.")
+st.caption(
+    "Active values come from environment variables by default (local Phoenix + Elastic). "
+    "Saved runtime overrides apply only when a key is not set in the environment."
+)
 
 snapshot = get_snapshot()
-runtime = load_runtime_config()
-public_runtime = to_public_view(runtime)
 
 with st.sidebar:
     st.markdown("### Configuration")
@@ -73,100 +75,135 @@ tab_phoenix, tab_elastic, tab_mcp, tab_summary = st.tabs(
 with tab_phoenix:
     phoenix_base = st.text_input(
         "PHOENIX_BASE_URL",
-        value=str(runtime.get("PHOENIX_BASE_URL") or snapshot.phoenix.api_base_url),
+        value=snapshot.phoenix.api_base_url,
+        help=f"Active source: {field_source(snapshot, 'PHOENIX_BASE_URL')}",
     )
     phoenix_console = st.text_input(
         "PHOENIX_CONSOLE_URL",
-        value=str(runtime.get("PHOENIX_CONSOLE_URL") or snapshot.phoenix.console_url),
+        value=snapshot.phoenix.console_url,
+        help=f"Active source: {field_source(snapshot, 'PHOENIX_CONSOLE_URL')}",
     )
     phoenix_collector = st.text_input(
         "PHOENIX_COLLECTOR_ENDPOINT",
-        value=str(runtime.get("PHOENIX_COLLECTOR_ENDPOINT") or snapshot.phoenix.collector_endpoint),
+        value=snapshot.phoenix.collector_endpoint,
+        help=f"Active source: {field_source(snapshot, 'PHOENIX_COLLECTOR_ENDPOINT')}",
     )
     phoenix_project = st.text_input(
         "PHOENIX_PROJECT_NAME",
-        value=str(runtime.get("PHOENIX_PROJECT_NAME") or snapshot.phoenix.project_name),
+        value=snapshot.phoenix.project_name,
+        help=f"Active source: {field_source(snapshot, 'PHOENIX_PROJECT_NAME')}",
     )
     phoenix_port = st.number_input(
         "PHOENIX_PORT",
         min_value=1,
         max_value=65535,
-        value=int(runtime.get("PHOENIX_PORT") or snapshot.phoenix.port),
+        value=int(snapshot.phoenix.port),
+        help=f"Active source: {field_source(snapshot, 'PHOENIX_PORT')}",
     )
     phoenix_key = st.text_input(
         "PHOENIX_API_KEY",
         value="",
         type="password",
-        help="Leave blank to keep the current stored value.",
-        placeholder="set" if public_runtime.get("PHOENIX_API_KEY") else "not set",
+        help="Leave blank to keep the current active value.",
+        placeholder=secret_placeholder(
+            snapshot,
+            "PHOENIX_API_KEY",
+            is_set=bool(snapshot.phoenix.api_key),
+        ),
     )
 
 with tab_elastic:
     elastic_enabled = st.toggle(
         "ELASTIC_ENABLED",
-        value=bool(runtime.get("ELASTIC_ENABLED", snapshot.elastic.enabled)),
+        value=bool(snapshot.elastic.enabled),
+        help=f"Active source: {field_source(snapshot, 'ELASTIC_ENABLED')}",
     )
     elastic_url = st.text_input(
         "ELASTIC_URL",
-        value=str(runtime.get("ELASTIC_URL") or snapshot.elastic.url),
+        value=snapshot.elastic.url,
+        help=f"Active source: {field_source(snapshot, 'ELASTIC_URL')}",
     )
     elastic_index = st.text_input(
         "ELASTIC_INDEX_PREFIX",
-        value=str(runtime.get("ELASTIC_INDEX_PREFIX") or snapshot.elastic.index_prefix),
+        value=snapshot.elastic.index_prefix,
+        help=f"Active source: {field_source(snapshot, 'ELASTIC_INDEX_PREFIX')}",
     )
     elastic_username = st.text_input(
         "ELASTIC_USERNAME",
-        value=str(runtime.get("ELASTIC_USERNAME") or snapshot.elastic.username or ""),
+        value=snapshot.elastic.username or "",
+        help=f"Active source: {field_source(snapshot, 'ELASTIC_USERNAME')}",
     )
     elastic_password = st.text_input(
         "ELASTIC_PASSWORD",
         value="",
         type="password",
-        placeholder="set" if public_runtime.get("ELASTIC_PASSWORD") else "not set",
+        placeholder=secret_placeholder(
+            snapshot,
+            "ELASTIC_PASSWORD",
+            is_set=bool(snapshot.elastic.password),
+        ),
     )
     elastic_api_key = st.text_input(
         "ELASTIC_API_KEY",
         value="",
         type="password",
-        placeholder="set" if public_runtime.get("ELASTIC_API_KEY") else "not set",
+        placeholder=secret_placeholder(
+            snapshot,
+            "ELASTIC_API_KEY",
+            is_set=bool(snapshot.elastic.api_key),
+        ),
     )
     elastic_health = check_elastic()
     st.info(f"Elastic connectivity: {elastic_health.get('detail', 'unknown')}")
 
 with tab_mcp:
-    mcp_enabled = st.toggle("MCP_ENABLED", value=bool(runtime.get("MCP_ENABLED", snapshot.mcp.enabled)))
+    mcp_enabled = st.toggle(
+        "MCP_ENABLED",
+        value=bool(snapshot.mcp.enabled),
+        help=f"Active source: {field_source(snapshot, 'MCP_ENABLED')}",
+    )
     mcp_phoenix = st.toggle(
         "MCP_PHOENIX_ENABLED",
-        value=bool(runtime.get("MCP_PHOENIX_ENABLED", snapshot.mcp.phoenix_enabled)),
+        value=bool(snapshot.mcp.phoenix_enabled),
+        help=f"Active source: {field_source(snapshot, 'MCP_PHOENIX_ENABLED')}",
     )
     mcp_elastic = st.toggle(
         "MCP_ELASTIC_ENABLED",
-        value=bool(runtime.get("MCP_ELASTIC_ENABLED", snapshot.mcp.elastic_enabled)),
+        value=bool(snapshot.mcp.elastic_enabled),
+        help=f"Active source: {field_source(snapshot, 'MCP_ELASTIC_ENABLED')}",
     )
     gemini_key = st.text_input(
         "GEMINI_API_KEY",
         value="",
         type="password",
-        placeholder="set" if public_runtime.get("GEMINI_API_KEY") else "not set",
+        placeholder=secret_placeholder(
+            snapshot,
+            "GEMINI_API_KEY",
+            is_set=bool(usable_secret(snapshot.gemini_api_key)),
+        ),
     )
     gemini_base = st.text_input(
         "GEMINI_BASE_URL",
-        value=str(runtime.get("GEMINI_BASE_URL") or config.GEMINI_BASE_URL),
+        value=config.GEMINI_BASE_URL,
+        help=f"Active source: {field_source(snapshot, 'GEMINI_BASE_URL')}",
     )
     with st.expander("Advanced MCP settings"):
         mcp_phoenix_pkg = st.text_input(
             "MCP_PHOENIX_PACKAGE",
-            value=str(runtime.get("MCP_PHOENIX_PACKAGE") or snapshot.mcp.phoenix_package),
+            value=snapshot.mcp.phoenix_package,
+            help=f"Active source: {field_source(snapshot, 'MCP_PHOENIX_PACKAGE')}",
         )
         mcp_elastic_pkg = st.text_input(
             "MCP_ELASTIC_PACKAGE",
-            value=str(runtime.get("MCP_ELASTIC_PACKAGE") or snapshot.mcp.elastic_package),
+            value=snapshot.mcp.elastic_package,
+            help=f"Active source: {field_source(snapshot, 'MCP_ELASTIC_PACKAGE')}",
         )
         mcp_timeout = st.number_input(
             "MCP_LOAD_TIMEOUT_SEC",
             min_value=5,
             max_value=180,
-            value=int(runtime.get("MCP_LOAD_TIMEOUT_SEC") or snapshot.mcp.load_timeout_sec),
+            value=int(snapshot.mcp.load_timeout_sec),
+            help=f"Active source: {field_source(snapshot, 'MCP_LOAD_TIMEOUT_SEC')}",
         )
 
 with tab_summary:
@@ -238,7 +275,7 @@ if action2.button("Reset to environment"):
     reload()
     config.reload()
     reset_mcp_tools()
-    st.success("Runtime overrides cleared. Active values now come from environment defaults.")
+    st.success("Runtime overrides cleared. Active values now come from environment variables and built-in defaults.")
     st.rerun()
 
 if action3.button("Run validation"):

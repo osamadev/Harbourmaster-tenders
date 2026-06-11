@@ -62,3 +62,13 @@ def render_resolved_summary(snapshot: ResolvedSettings) -> None:
 def render_field_sources(sources: dict[str, str], keys: list[str]) -> None:
     rows = [{"key": key, "source": sources.get(key, "default")} for key in keys]
     st.dataframe(rows, use_container_width=True, hide_index=True)
+
+
+def field_source(snapshot: ResolvedSettings, key: str) -> str:
+    return snapshot.sources.get(key, "default")
+
+
+def secret_placeholder(snapshot: ResolvedSettings, key: str, *, is_set: bool) -> str:
+    if not is_set:
+        return "not set"
+    return f"set via {field_source(snapshot, key)}"

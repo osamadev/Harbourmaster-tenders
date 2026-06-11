@@ -34,7 +34,7 @@ Governance Copilot uses Phoenix MCP for traces/evals and Elastic MCP for search.
 
 ## Environment and modes
 
-Settings merge in this order: **defaults → `configs/runtime_settings/runtime_config.json` (UI) → environment variables**.
+Settings merge in this order: **defaults → `configs/runtime_settings/runtime_config.json` (optional UI overrides) → environment variables (highest precedence)**. Local Phoenix + Elastic are the default modes; set keys in `.env` / `.env.docker`.
 
 Per-service deployment modes:
 
@@ -67,7 +67,7 @@ make config-check
 
 ```bash
 make install
-make run            # local profile: ui + phoenix + elastic
+make run            # ui + phoenix + elastic (COMPOSE_PROFILES=local in .env.docker)
 make smoke          # Gemini + guard + workflow smoke checks
 make smoke-copilot  # copilot health + native tool path
 make config-check   # resolved settings + validation
@@ -84,6 +84,31 @@ cp .env.cloud.example .env.cloud
 # fill PHOENIX_API_KEY and optional ELASTIC_API_KEY
 make run-cloud
 ```
+
+## Deploy to a VPS (self-hosted stack)
+
+Phoenix and Elastic start automatically when `.env.docker` sets `COMPOSE_PROFILES=local` (the default in `.env.docker.example`). Starting **only** `ui` without that profile leaves nothing listening on `phoenix:6006` / `elastic:9200`.
+
+```bash
+cp .env.docker.example .env.docker
+# edit GEMINI_API_KEY and set PHOENIX_CONSOLE_URL to your public VPS host, e.g.:
+# PHOENIX_CONSOLE_URL=http://203.0.113.10:6006
+
+docker compose --env-file .env.docker up --build -d
+```
+
+Keep **server-side** URLs on the Docker network (do not change these for VPS):
+
+- `PHOENIX_BASE_URL=http://phoenix:6006`
+- `ELASTIC_URL=http://elastic:9200`
+
+Set **browser** URL separately:
+
+- `PHOENIX_CONSOLE_URL=http://<your-vps-host>:6006`
+
+Open firewall ports `8501` (UI), `6006` (Phoenix console), and optionally `9200`. If you used the Configuration page locally, delete or fix `configs/runtime_settings/runtime_config.json` on the VPS when it still points at `localhost`.
+
+For a UI-only VPS with managed Phoenix/Elastic, use `make run-cloud` and `.env.cloud` instead.
 
 ## Streamlit pages
 
