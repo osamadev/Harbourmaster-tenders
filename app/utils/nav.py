@@ -12,9 +12,11 @@ def render_sidebar_nav(
     home_label: str = "Tender Review",
     home_icon: str = "⚓",
     include_home: bool = True,
+    include_phoenix_link: bool = True,
 ) -> None:
     """Render common sidebar page links and Phoenix console link."""
-    render_phoenix_console_link()
+    if include_phoenix_link:
+        render_phoenix_console_link()
     if hasattr(st, "page_link"):
         if include_home:
             st.page_link("Home.py", label=home_label, icon=home_icon)

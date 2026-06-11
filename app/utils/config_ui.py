@@ -34,6 +34,7 @@ def render_resolved_summary(snapshot: ResolvedSettings) -> None:
             "collector_endpoint": snapshot.phoenix.collector_endpoint,
             "console_url": snapshot.phoenix.console_url,
             "project_name": snapshot.phoenix.project_name,
+            "project_id": snapshot.phoenix.project_id or "(resolve via API)",
             "api_key": "set" if snapshot.phoenix.api_key else "not set",
         }
     )

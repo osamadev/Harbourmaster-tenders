@@ -17,6 +17,7 @@ RUN apt-get update \
 COPY requirements.txt pyproject.toml README.md ./
 COPY harbourmaster ./harbourmaster
 COPY app ./app
+COPY .streamlit ./.streamlit
 COPY configs ./configs
 COPY data ./data
 COPY scripts ./scripts

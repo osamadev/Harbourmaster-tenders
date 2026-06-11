@@ -1,0 +1,3 @@
+[client]
+# Custom sidebar nav in app/utils/nav.py (avoids duplicate page links).
+showSidebarNavigation = false

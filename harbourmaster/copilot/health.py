@@ -11,7 +11,7 @@ import httpx
 from harbourmaster import config
 from harbourmaster.copilot.tools_mcp import mcp_status
 from harbourmaster.elastic_store import enabled as elastic_enabled
-from harbourmaster.phoenix_audit import _phoenix_headers
+from harbourmaster.phoenix_audit import _phoenix_headers, phoenix_console_url
 from harbourmaster.settings import get_snapshot, validate
 
 
@@ -89,5 +89,5 @@ def run_health_checks() -> dict[str, Any]:
         "elastic_mode": snapshot.elastic.mode,
         "validation_errors": errors,
         "validation_warnings": warnings,
-        "console_url": f"{snapshot.phoenix.console_url}/projects/{snapshot.phoenix.project_name}",
+        "console_url": phoenix_console_url(),
     }

@@ -6,15 +6,7 @@ import html
 
 import streamlit as st
 
-from harbourmaster import config
-
-
-def phoenix_console_url(*, project: bool = True) -> str:
-    """Return a browser-openable Phoenix console URL."""
-    base = config.PHOENIX_CONSOLE_URL.rstrip("/")
-    if project and config.PHOENIX_PROJECT_NAME:
-        return f"{base}/projects/{config.PHOENIX_PROJECT_NAME}"
-    return base
+from harbourmaster.phoenix_audit import phoenix_console_url
 
 
 def render_external_link(label: str, url: str) -> None:

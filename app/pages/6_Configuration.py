@@ -18,7 +18,6 @@ from app.utils.config_ui import (  # noqa: E402
     render_validation_results,
     secret_placeholder,
 )
-from app.utils.links import render_phoenix_console_link  # noqa: E402
 from app.utils.nav import render_sidebar_nav  # noqa: E402
 from harbourmaster import config  # noqa: E402
 from harbourmaster.copilot.health import check_elastic, run_health_checks  # noqa: E402
@@ -64,7 +63,7 @@ with col_status:
     health = run_health_checks()
     st.write(f"Phoenix: {'OK' if health['phoenix']['ok'] else 'WARN'} ({health['phoenix_mode']})")
     st.write(f"Elastic: {'OK' if health['elastic']['ok'] else 'WARN'} ({health['elastic_mode']})")
-    render_phoenix_console_link()
+    st.caption(f"Phoenix console: `{health.get('console_url', '')}`")
 
 st.divider()
 
@@ -92,6 +91,13 @@ with tab_phoenix:
         "PHOENIX_PROJECT_NAME",
         value=snapshot.phoenix.project_name,
         help=f"Active source: {field_source(snapshot, 'PHOENIX_PROJECT_NAME')}",
+    )
+    phoenix_project_id = st.text_input(
+        "PHOENIX_PROJECT_ID",
+        value=snapshot.phoenix.project_id or "",
+        help="Phoenix UI project path uses the ID (e.g. UHJvamVjdDoy). "
+        f"Active source: {field_source(snapshot, 'PHOENIX_PROJECT_ID')}. "
+        "Leave blank to resolve from PHOENIX_PROJECT_NAME via the Phoenix API.",
     )
     phoenix_port = st.number_input(
         "PHOENIX_PORT",
@@ -232,6 +238,7 @@ pending_updates: dict[str, object] = {
     "PHOENIX_CONSOLE_URL": phoenix_console.strip(),
     "PHOENIX_COLLECTOR_ENDPOINT": phoenix_collector.strip(),
     "PHOENIX_PROJECT_NAME": phoenix_project.strip(),
+    "PHOENIX_PROJECT_ID": phoenix_project_id.strip(),
     "PHOENIX_PORT": int(phoenix_port),
     "ELASTIC_ENABLED": elastic_enabled,
     "ELASTIC_URL": elastic_url.strip(),

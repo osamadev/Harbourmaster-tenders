@@ -36,6 +36,7 @@ KNOWN_KEYS = frozenset(
         "PHOENIX_CONSOLE_URL",
         "PHOENIX_API_KEY",
         "PHOENIX_PROJECT_NAME",
+        "PHOENIX_PROJECT_ID",
         "PHOENIX_PORT",
         "ELASTIC_ENABLED",
         "ELASTIC_URL",
@@ -115,6 +116,7 @@ class PhoenixRuntime:
     collector_endpoint: str
     console_url: str
     project_name: str
+    project_id: str | None
     api_key: str | None
     port: int
     auth_headers: dict[str, str]
@@ -281,6 +283,7 @@ def resolve_settings(runtime_override: dict[str, Any] | None = None) -> Resolved
             collector_endpoint=collector,
             console_url=console_url,
             project_name=str(raw.get("PHOENIX_PROJECT_NAME") or "harbourmaster"),
+            project_id=str(raw.get("PHOENIX_PROJECT_ID") or "").strip() or None,
             api_key=phoenix_key,
             port=phoenix_port,
             auth_headers=phoenix_headers,
@@ -337,7 +340,9 @@ def reload() -> ResolvedSettings:
     _snapshot = resolve_settings()
     try:
         from harbourmaster import config as legacy_config
+        from harbourmaster.phoenix_audit import clear_phoenix_project_cache
 
+        clear_phoenix_project_cache()
         legacy_config._apply_snapshot(_snapshot)
     except Exception:  # noqa: BLE001
         pass
@@ -379,6 +384,12 @@ def validate(snapshot: ResolvedSettings | None = None) -> tuple[list[str], list[
     if not usable_secret(settings.gemini_api_key):
         warnings.append("GEMINI_API_KEY is missing or placeholder; Governance Copilot chat will fail.")
 
+    console_host = urlparse(settings.phoenix.console_url).hostname or ""
+    if _running_in_docker(settings.raw) and console_host in {"localhost", "127.0.0.1"}:
+        warnings.append(
+            "PHOENIX_CONSOLE_URL points at localhost inside Docker. "
+            "Set it to your public VPS host, e.g. http://203.0.113.10:6006."
+        )
     return errors, warnings
 
 
@@ -399,6 +410,7 @@ def flat_config(snapshot: ResolvedSettings | None = None) -> dict[str, Any]:
         "PHOENIX_CONSOLE_URL": s.phoenix.console_url,
         "PHOENIX_API_KEY": s.phoenix.api_key or "",
         "PHOENIX_PROJECT_NAME": s.phoenix.project_name,
+        "PHOENIX_PROJECT_ID": s.phoenix.project_id or "",
         "PHOENIX_PORT": s.phoenix.port,
         "ELASTIC_ENABLED": s.elastic.enabled,
         "ELASTIC_URL": s.elastic.url,

@@ -7,10 +7,9 @@ from typing import Any
 
 from langchain_core.tools import tool
 
-from harbourmaster import config
 from harbourmaster.elastic_store import enabled as elastic_enabled
 from harbourmaster.elastic_store import search as elastic_search
-from harbourmaster.phoenix_audit import load_dataframe
+from harbourmaster.phoenix_audit import load_dataframe, phoenix_console_url
 from harbourmaster.policies import active_policies
 from harbourmaster.reviews import list_reviews, load_review
 
@@ -31,7 +30,7 @@ def summarize_guard_telemetry() -> str:
             {
                 "status": "empty",
                 "message": "No Phoenix telemetry found. Run a contract review first.",
-                "console_url": f"{config.PHOENIX_CONSOLE_URL}/projects/{config.PHOENIX_PROJECT_NAME}",
+                "console_url": phoenix_console_url(),
             }
         )
 
@@ -58,7 +57,7 @@ def summarize_guard_telemetry() -> str:
             "guard_categories": categories,
             "risk_bearing_spans": risk_bearing,
             "system_tool_denials": system_denied,
-            "console_url": f"{config.PHOENIX_CONSOLE_URL}/projects/{config.PHOENIX_PROJECT_NAME}",
+            "console_url": phoenix_console_url(),
         },
         indent=2,
     )

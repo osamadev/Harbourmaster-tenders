@@ -204,7 +204,8 @@ flowchart LR
 | `COMPOSE_PROFILES` | `local` (in `.env.docker`) | Start phoenix + elastic with ui |
 | `GEMINI_API_KEY` | — | Workflow + Copilot LLM calls |
 | `PHOENIX_BASE_URL` | `http://phoenix:6006` (Docker) | Server REST, OTLP, MCP |
-| `PHOENIX_CONSOLE_URL` | `http://localhost:6006` | Browser sidebar links |
+| `PHOENIX_CONSOLE_URL` | `http://localhost:6006` | Browser sidebar links (set to your **public VPS host** when remote) |
+| `PHOENIX_PROJECT_ID` | — | Phoenix UI `/projects/{id}` path (auto-resolved from name if unset) |
 | `PHOENIX_API_KEY` | — | Required when `PHOENIX_MODE=cloud` |
 | `ELASTIC_URL` | `http://elastic:9200` (Docker) | Native client + MCP |
 | `ELASTIC_API_KEY` | — | Required when `ELASTIC_MODE=cloud` |

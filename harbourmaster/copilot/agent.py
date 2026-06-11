@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 from harbourmaster import config
+from harbourmaster.phoenix_audit import phoenix_console_url
 from harbourmaster.copilot.models import CopilotMessage, CopilotResult, SourceCitation
 from harbourmaster.copilot.prompts import SYSTEM_PROMPT
 from harbourmaster.copilot.tools_mcp import load_mcp_tools, reset_mcp_tools
@@ -117,7 +118,7 @@ def _sources_from_trace(trace: list[dict[str, Any]]) -> list[SourceCitation]:
                 SourceCitation(
                     kind="phoenix",
                     title="Guard telemetry",
-                    link=f"{config.PHOENIX_CONSOLE_URL}/projects/{config.PHOENIX_PROJECT_NAME}",
+                    link=phoenix_console_url(),
                 )
             )
         elif name == "list_active_policies":
@@ -174,12 +175,10 @@ async def chat(message: str, history: list[CopilotMessage] | None = None) -> Cop
     if not answer:
         answer = "I could not produce a textual answer. Expand tool calls for raw results."
 
-    console_links = [f"{config.PHOENIX_CONSOLE_URL}/projects/{config.PHOENIX_PROJECT_NAME}"]
+    console_links = [phoenix_console_url()]
     for item in trace:
         if re.search(r"experiment|dataset|phoenix", str(item.get("name", "")), re.I):
-            console_links.append(
-                f"{config.PHOENIX_CONSOLE_URL}/projects/{config.PHOENIX_PROJECT_NAME}"
-            )
+            console_links.append(phoenix_console_url())
             break
 
     return CopilotResult(

@@ -3,6 +3,7 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.config import get_stream_writer
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
@@ -21,17 +22,34 @@ from harbourmaster.state import ReviewState
 from harbourmaster.telemetry import record_inspection_span
 
 
+def _emit(event: dict) -> None:
+    """Best-effort custom stream event for live UI progress."""
+    try:
+        get_stream_writer()(event)
+    except Exception:  # noqa: BLE001
+        return
+
+
 def segment_node(state: ReviewState) -> dict:
     """Segment the tender into stable clauses."""
     tender_text = state["tender_text"]
     guard = evaluate_content(tender_text, context="tender_input")
+    _emit(
+        {
+            "type": "guard_complete",
+            "verdict": guard.verdict,
+            "blocked": guard.blocked,
+        }
+    )
     record_inspection_span(
         "harbourmaster.guard",
         {**guard.to_inspection(), "agent_id": "governance-guard-v1"},
         direction="guard",
     )
     clauses, resp = segment_tender_clauses(state["tender_text"])
+    _emit({"type": "segment_complete", "clause_count": len(clauses)})
     retrieval_context = retrieval_context_for_clauses(clauses)
+    _emit({"type": "retrieval_complete", "snippet_count": len(retrieval_context)})
     blocked = guard.blocked
     reports = [guard.to_inspection(), resp.inspection]
     return {
@@ -56,9 +74,15 @@ def specialists_node(state: ReviewState) -> dict:
     reports = list(state.get("inspection_reports", []))
 
     targets = [s for s in SPECIALIST_KEYS if s in pending] if pending else list(SPECIALIST_KEYS)
+    revision_round = state.get("revision_round", 0)
+    if revision_round:
+        _emit({"type": "revision_round", "round": revision_round, "targets": targets})
 
     blocked = state.get("blocked", False)
     block_reason = state.get("block_reason", "")
+
+    for specialist in targets:
+        _emit({"type": "specialist_start", "specialist": specialist, "revision_round": revision_round})
 
     with ThreadPoolExecutor(max_workers=len(targets) or 1) as executor:
         futures = {
@@ -77,6 +101,14 @@ def specialists_node(state: ReviewState) -> dict:
             findings, resp = future.result()
             existing[specialist] = findings
             reports.append(resp.inspection)
+            _emit(
+                {
+                    "type": "specialist_complete",
+                    "specialist": specialist,
+                    "findings": len(findings),
+                    "revision_round": revision_round,
+                }
+            )
             if resp.blocked:
                 blocked = True
                 block_reason = f"Model verdict: {resp.verdict}"
@@ -137,6 +169,14 @@ def aggregate_node(state: ReviewState) -> dict:
         specialist_scores[specialist] = max_score
 
     overall = _weighted_overall_risk(specialist_scores)
+    high_risk_count = sum(1 for row in merged if row.get("risk_level") == "high")
+    _emit(
+        {
+            "type": "risk_computed",
+            "overall_risk": overall,
+            "high_risk_count": high_risk_count,
+        }
+    )
     verdict = "HUMAN_REVIEW" if overall >= config.REVIEW_RISK_THRESHOLD else "ALLOW"
     record_inspection_span(
         "harbourmaster.workflow.overall_risk",
@@ -193,6 +233,9 @@ def verifier_node(state: ReviewState) -> dict:
     if not verified and merged_findings:
         verified = merged_findings
 
+    pending_count = sum(len(items) for items in pending.values())
+    _emit({"type": "verifier_complete", "pending_revisions": pending_count})
+
     return {
         "verifier_notes": decisions,
         "verified_findings": verified,
@@ -212,11 +255,21 @@ def route_after_verifier(state: ReviewState) -> str:
 
 def revision_node(state: ReviewState) -> dict:
     """Increment revision round before re-running specialists."""
-    return {"revision_round": state.get("revision_round", 0) + 1}
+    round_num = state.get("revision_round", 0) + 1
+    targets = list(state.get("pending_revisions", {}).keys()) or list(SPECIALIST_KEYS)
+    _emit({"type": "revision_round", "round": round_num, "targets": targets})
+    return {"revision_round": round_num}
 
 
 def governance_node(state: ReviewState) -> dict:
     """Pass-through node used for governance routing."""
+    if state.get("blocked"):
+        route = "human_review (guard blocked)"
+    elif state.get("overall_risk", 0.0) >= config.REVIEW_RISK_THRESHOLD:
+        route = "human_review (risk threshold)"
+    else:
+        route = "auto-continue"
+    _emit({"type": "route_decision", "route": route})
     return {}
 
 
@@ -255,6 +308,7 @@ def negotiator_node(state: ReviewState) -> dict:
     """Draft counter-clauses for high-risk findings."""
     decision = state.get("review_decision") or {}
     if decision.get("decision") == "reject":
+        _emit({"type": "negotiator_complete", "counter_clauses": 0, "skipped": True})
         return {"counter_clauses": []}
 
     findings = state.get("verified_findings") or state.get("findings", {}).get("findings", [])
@@ -265,6 +319,7 @@ def negotiator_node(state: ReviewState) -> dict:
         clause_notes=decision.get("clause_notes"),
     )
     reports = list(state.get("inspection_reports", [])) + [resp.inspection]
+    _emit({"type": "negotiator_complete", "counter_clauses": len(counter_clauses)})
     return {"counter_clauses": counter_clauses, "inspection_reports": reports}
 
 
@@ -275,6 +330,7 @@ def draft_node(state: ReviewState) -> dict:
     if decision.get("decision") == "reject":
         reviewer = decision.get("reviewer", "reviewer")
         note = decision.get("note", "no note provided")
+        _emit({"type": "draft_complete", "rejected": True})
         return {"draft_summary": f"REVIEW REJECTED by {reviewer}: {note}"}
 
     final_findings = {
@@ -290,6 +346,7 @@ def draft_node(state: ReviewState) -> dict:
     )
     _index_review_memory(summary, state)
     reports = list(state.get("inspection_reports", [])) + [resp.inspection]
+    _emit({"type": "draft_complete", "rejected": False})
     return {
         "draft_summary": summary,
         "inspection_reports": reports,

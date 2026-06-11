@@ -13,7 +13,7 @@ _root = Path(__file__).resolve().parents[2]
 if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
-from app.utils.links import render_external_link, render_phoenix_console_link  # noqa: E402
+from app.utils.links import render_external_link  # noqa: E402
 from app.utils.nav import render_sidebar_nav  # noqa: E402
 from harbourmaster.copilot import CopilotMessage, chat, reset_agent, run_health_checks  # noqa: E402
 

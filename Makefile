@@ -48,7 +48,7 @@ index-elastic:
 	docker compose --env-file .env.docker exec ui python scripts/index_elastic.py
 
 dashboard:
-	@python -c "from harbourmaster import config; print(f'Phoenix console: {config.PHOENIX_CONSOLE_URL}/projects/{config.PHOENIX_PROJECT_NAME}'); print('UI:              http://localhost:8501')"
+	@python -c "from harbourmaster.phoenix_audit import phoenix_console_url; print(f'Phoenix console: {phoenix_console_url()}'); print('UI:              http://localhost:8501')"
 
 clean:
 	python -c "import pathlib, shutil; [shutil.rmtree(p, ignore_errors=True) for p in pathlib.Path('.').rglob('__pycache__')]"

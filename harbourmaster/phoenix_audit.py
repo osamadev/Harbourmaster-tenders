@@ -12,6 +12,13 @@ from harbourmaster import config
 MAX_SPANS = 500
 PAGE_SIZE = 100
 
+_project_identifier_cache: dict[str, str] = {}
+
+
+def clear_phoenix_project_cache() -> None:
+    """Clear cached Phoenix project ID lookups (call after config reload)."""
+    _project_identifier_cache.clear()
+
 
 def _phoenix_headers() -> dict[str, str]:
     from harbourmaster.settings import get_snapshot
@@ -51,6 +58,47 @@ def _extract_spans(payload: Any) -> tuple[list[dict[str, Any]], str | None]:
         cursor = None
     rows = [row for row in spans if isinstance(row, dict)]
     return rows, cursor if isinstance(cursor, str) and cursor.strip() else None
+
+
+def resolve_phoenix_project_identifier(*, force_refresh: bool = False) -> str:
+    """Return Phoenix project ID for console URLs (UI expects ID, not name)."""
+    project_id = str(getattr(config, "PHOENIX_PROJECT_ID", "") or "").strip()
+    if project_id:
+        return project_id
+
+    project_name = str(config.PHOENIX_PROJECT_NAME or "").strip() or "harbourmaster"
+    base = config.PHOENIX_BASE_URL.rstrip("/")
+    cache_key = f"{base}:{project_name}"
+    if not force_refresh and cache_key in _project_identifier_cache:
+        return _project_identifier_cache[cache_key]
+
+    headers = _phoenix_headers()
+    try:
+        response = httpx.get(
+            f"{base}/v1/projects/{project_name}",
+            headers=headers,
+            timeout=5,
+        )
+        if response.status_code == 200:
+            payload = response.json()
+            data = payload.get("data") if isinstance(payload, dict) else None
+            if isinstance(data, dict) and data.get("id"):
+                resolved = str(data["id"])
+                _project_identifier_cache[cache_key] = resolved
+                return resolved
+    except Exception:  # noqa: BLE001
+        pass
+
+    return project_name
+
+
+def phoenix_console_url(*, project: bool = True) -> str:
+    """Build a browser-openable Phoenix console URL from env-backed settings."""
+    base = config.PHOENIX_CONSOLE_URL.rstrip("/")
+    if not project:
+        return base
+    identifier = resolve_phoenix_project_identifier()
+    return f"{base}/projects/{identifier}"
 
 
 def _fetch_project_spans(base: str, project_name: str, headers: dict[str, str]) -> list[dict[str, Any]]:

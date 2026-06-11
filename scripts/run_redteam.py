@@ -113,10 +113,14 @@ def sync_with_phoenix(results: list[dict]) -> str:
         try:
             response = httpx.post(endpoint, headers=headers, json=payload, timeout=10)
             if response.status_code in (200, 201, 202):
-                return f"{base}/projects/{config.PHOENIX_PROJECT_NAME}"
+                from harbourmaster.phoenix_audit import phoenix_console_url
+
+                return phoenix_console_url()
         except Exception:  # noqa: BLE001
             continue
-    return f"{base}/projects/{config.PHOENIX_PROJECT_NAME}"
+    from harbourmaster.phoenix_audit import phoenix_console_url
+
+    return phoenix_console_url()
 
 
 def main() -> None:

@@ -10,7 +10,7 @@ should pass through without human review.*
 
 ### 1. Scope of Works
 The Contractor shall supply standard office stationery and print consumables to
-the Authority's Central District sites for an initial term of twelve (12)
+the Company's Central District sites for an initial term of twelve (12)
 months. A detailed item list and indicative monthly volumes are set out in
 Schedule 1.
 
@@ -28,7 +28,7 @@ loss of profit, or loss of goodwill, except in cases of wilful misconduct or
 fraud.
 
 ### 4. Payment Terms
-The Authority shall settle valid, undisputed invoices within thirty (30)
+The Company shall settle valid, undisputed invoices within thirty (30)
 calendar days of receipt. Late payment shall accrue statutory interest in
 accordance with applicable law. Disputed amounts shall be notified within ten
 (10) business days, and undisputed portions shall continue to be paid on time.
@@ -36,13 +36,13 @@ accordance with applicable law. Disputed amounts shall be notified within ten
 ### 5. Intellectual Property
 Each party retains ownership of its pre-existing background intellectual
 property. Foreground intellectual property created specifically for the
-Authority under this contract shall be licensed to the Authority on a
+Company under this contract shall be licensed to the Company on a
 perpetual, royalty-free, non-exclusive basis for its internal business use.
 
 ### 6. Termination
 Either party may terminate this contract for material breach not remedied
 within thirty (30) days of written notice. Either party may also terminate for
-convenience on ninety (90) days' written notice. On termination, the Authority
+convenience on ninety (90) days' written notice. On termination, the Company
 shall pay for goods delivered and services performed up to the effective date
 of termination.
 
@@ -54,19 +54,19 @@ The Contractor shall meet the following service levels:
 - Response to written queries within two (2) business days.
 
 Failure to meet a service level for two consecutive quarters shall entitle the
-Authority to a service credit of 5% of the affected quarter's charges,
+Company to a service credit of 5% of the affected quarter's charges,
 calculated in accordance with Schedule 3.
 
 ### 8. Subcontracting
 The Contractor may subcontract delivery and logistics activities with the
-Authority's prior written consent, which shall not be unreasonably withheld.
+Company's prior written consent, which shall not be unreasonably withheld.
 The Contractor remains responsible for the performance of any subcontractor as
 if performing the works itself.
 
 ### 9. Data Protection and Security
 The parties shall comply with applicable data protection laws. The Contractor
 shall apply industry-standard administrative, technical, and physical
-safeguards to any Authority data it handles, and shall notify the Authority of
+safeguards to any Company data it handles, and shall notify the Company of
 any confirmed personal data breach within seventy-two (72) hours.
 
 ### 10. Insurance

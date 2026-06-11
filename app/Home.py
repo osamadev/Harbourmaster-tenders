@@ -3,6 +3,7 @@
 import sys
 import uuid
 from pathlib import Path
+from typing import Any
 
 import streamlit as st
 from langgraph.types import Command
@@ -20,7 +21,10 @@ from app.utils.render import (  # noqa: E402
     display_specialist_findings,
     display_verifier_notes,
 )
-from harbourmaster import config  # noqa: E402
+from app.utils.workflow_progress import (  # noqa: E402
+    WorkflowProgressTracker,
+    stream_graph_run,
+)
 from harbourmaster.graph import graph  # noqa: E402
 from harbourmaster.ingest import extract_text  # noqa: E402
 from harbourmaster.policies import active_policies  # noqa: E402
@@ -56,17 +60,21 @@ if "selected_policy_ids" not in st.session_state:
     st.session_state.selected_policy_ids = []
 if "review_id" not in st.session_state:
     st.session_state.review_id = None
+if "live_workflow" not in st.session_state:
+    st.session_state.live_workflow = {}
 
 
 def _render_phase_progress() -> None:
-    phase_steps = ["idle", "analysing", "awaiting_review", "complete"]
+    phase_steps = ["idle", "processing", "awaiting_review", "complete"]
     labels = {
         "idle": "Submit",
-        "analysing": "Analyse",
+        "processing": "Processing",
         "awaiting_review": "Human Review",
         "complete": "Complete",
     }
     current = st.session_state.phase
+    if current == "analysing":
+        current = "processing"
     if current not in phase_steps:
         current = "idle"
     progress = phase_steps.index(current) / (len(phase_steps) - 1)
@@ -99,6 +107,30 @@ def _reset() -> None:
     st.session_state.tender_text = ""
     st.session_state.selected_policy_ids = []
     st.session_state.review_id = None
+    st.session_state.live_workflow = {}
+
+
+def _run_workflow(
+    inputs: Any,
+    run_config: dict[str, Any],
+    *,
+    mode: str = "full",
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    tracker = WorkflowProgressTracker(mode=mode)  # type: ignore[arg-type]
+    tracker.mount()
+    st.session_state.phase = "processing"
+    st.session_state.live_workflow = tracker.sidebar_snapshot()
+
+    final_state, interrupt_payload = stream_graph_run(
+        graph,
+        inputs,
+        run_config,
+        tracker,
+        on_tick=lambda snap: st.session_state.update(live_workflow=snap),
+    )
+
+    st.session_state.live_workflow = tracker.sidebar_snapshot()
+    return final_state, interrupt_payload
 
 
 _render_phase_progress()
@@ -153,33 +185,29 @@ if st.session_state.phase == "idle":
     if st.button("Start Review", type="primary", disabled=not tender_text):
         thread_id = f"review-{uuid.uuid4().hex[:8]}"
         run_config = {"configurable": {"thread_id": thread_id}}
-        st.session_state.phase = "analysing"
         st.session_state.tender_text = tender_text
         st.session_state.thread_id = thread_id
         st.session_state.run_config = run_config
 
-        with st.spinner("Analysing tender through governed multi-agent pipeline..."):
-            selected_policies = [policy_options[pid] for pid in selected_policy_ids if pid in policy_options]
-            result = graph.invoke(
-                {
-                    "tender_text": tender_text,
-                    "corporate_policies": selected_policies,
-                },
-                run_config,
-            )
+        selected_policies = [policy_options[pid] for pid in selected_policy_ids if pid in policy_options]
+        final_state, interrupt_payload = _run_workflow(
+            {
+                "tender_text": tender_text,
+                "corporate_policies": selected_policies,
+            },
+            run_config,
+            mode="full",
+        )
 
-        if "__interrupt__" in result:
+        if interrupt_payload:
             st.session_state.phase = "awaiting_review"
-            st.session_state.interrupt_payload = result["__interrupt__"][0].value
+            st.session_state.interrupt_payload = interrupt_payload
             st.rerun()
 
         st.session_state.phase = "complete"
-        st.session_state.final_result = result
-        _persist_completed_review(result)
+        st.session_state.final_result = final_state or {}
+        _persist_completed_review(st.session_state.final_result)
         st.rerun()
-
-elif st.session_state.phase == "analysing":
-    st.info("Analysis in progress. Please wait...")
 
 elif st.session_state.phase == "awaiting_review":
     payload = st.session_state.interrupt_payload or {}
@@ -245,15 +273,15 @@ elif st.session_state.phase == "awaiting_review":
                 "note": reviewer_note,
                 "clause_notes": clause_notes,
             }
-            with st.spinner("Resuming workflow with your decision..."):
-                result = graph.invoke(
-                    Command(resume=decision),
-                    st.session_state.run_config,
-                )
+            final_state, _ = _run_workflow(
+                Command(resume=decision),
+                st.session_state.run_config,
+                mode="resume",
+            )
 
             st.session_state.phase = "complete"
-            st.session_state.final_result = result
-            _persist_completed_review(result)
+            st.session_state.final_result = final_state or {}
+            _persist_completed_review(st.session_state.final_result)
             st.rerun()
 
 elif st.session_state.phase == "complete":
@@ -315,6 +343,21 @@ with st.sidebar:
     st.markdown(f"**Status:** `{st.session_state.phase}`")
     if st.session_state.thread_id:
         st.markdown(f"**Thread:** `{st.session_state.thread_id}`")
+
+    live = st.session_state.live_workflow or {}
+    if live:
+        st.markdown("### Live execution")
+        st.markdown(f"**Step:** {live.get('current_step', '—')}")
+        if live.get("guard_verdict"):
+            st.markdown(f"**Guard:** `{live['guard_verdict']}`")
+        st.markdown(
+            f"**Specialists:** {live.get('specialists_done', 0)}/{live.get('specialists_total', 5)}"
+        )
+        if live.get("revision_round"):
+            st.metric("Revision round", live.get("revision_round", 0))
+        if live.get("overall_risk") is not None:
+            st.metric("Overall risk", f"{float(live['overall_risk']):.2f}")
+
     st.metric("Saved Reviews", len(list_reviews()))
     st.divider()
     from app.utils.nav import render_sidebar_nav

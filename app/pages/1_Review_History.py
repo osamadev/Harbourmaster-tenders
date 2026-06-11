@@ -48,17 +48,21 @@ def _summary_markdown(review: dict) -> str:
 
 
 st.set_page_config(page_title="Review History", page_icon="🗂️", layout="wide")
+
+reviews = list_reviews()
+
+with st.sidebar:
+    st.markdown("### Review History")
+    st.metric("Saved Reviews", len(reviews))
+    from app.utils.nav import render_sidebar_nav
+
+    render_sidebar_nav()
+
 st.title("Review History")
 st.caption("Browse, inspect, download, and manage saved contract review records.")
 
-reviews = list_reviews()
 if not reviews:
     st.info("No saved reviews yet. Complete a review on the Home page to populate history.")
-    with st.sidebar:
-        st.markdown("### Review History")
-        from app.utils.nav import render_sidebar_nav
-
-        render_sidebar_nav()
     st.stop()
 
 decisions = [str(row.get("decision", "auto-approved")) for row in reviews]
@@ -174,10 +178,3 @@ with action_col3:
             st.success(f"Deleted review `{selected_review_id}`")
             st.rerun()
         st.error(f"Could not delete review `{selected_review_id}`")
-
-with st.sidebar:
-    st.markdown("### Review History")
-    st.metric("Saved Reviews", len(reviews))
-    from app.utils.nav import render_sidebar_nav
-
-    render_sidebar_nav()
