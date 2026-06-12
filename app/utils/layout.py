@@ -98,6 +98,12 @@ def inject_theme_css() -> None:
         .hm-step-done .hm-step-dot { background: var(--hm-teal); border-color: var(--hm-teal); color: #fff; }
         .hm-step-done .hm-step-label { color: var(--hm-text); }
         .hm-conn-done { background: var(--hm-teal); }
+        .hm-step-skipped .hm-step-dot { background: #fff; border-color: var(--hm-border);
+            border-style: dashed; color: #94A3B8; }
+        .hm-step-skipped .hm-step-label { color: #94A3B8; }
+        .hm-step-blocked .hm-step-dot { background: var(--hm-err-bg); border-color: #DC2626; color: var(--hm-err); }
+        .hm-step-blocked .hm-step-label { color: var(--hm-err); font-weight: 700; }
+        .hm-conn-blocked { background: #FCA5A5; }
         .hm-step-active .hm-step-dot {
             background: #fff; border-color: var(--hm-teal); color: var(--hm-teal);
             animation: hmPulse 1.8s infinite;
@@ -282,6 +288,12 @@ def render_app_sidebar(
     show_demo: bool = False,
 ) -> None:
     """Standard sidebar: header, status, nav, optional extras, Phoenix link."""
+    # Kick off a one-time background warm-up of the MCP tools so the first Copilot query /
+    # MCP-backed dashboard read doesn't pay the npx spawn cost (no-op if already warmed).
+    from harbourmaster.copilot.warmup import warm_up_mcp
+
+    warm_up_mcp()
+
     with st.sidebar:
         st.markdown("### ⚓ Harbourmaster")
         st.markdown(
@@ -326,7 +338,30 @@ def _render_demo_callout() -> None:
             st.rerun()
 
 
-def render_phase_stepper(phase: str, *, live: dict[str, Any] | None = None) -> None:
+def render_phase_stepper(
+    phase: str, *, live: dict[str, Any] | None = None, blocked: bool = False
+) -> None:
+    # Guard-blocked terminal: the run halted at ingress, so Human Review never happened and
+    # the outcome is a block — render that honestly instead of a normal "Complete".
+    if blocked and phase == "complete":
+        spec = [
+            ("hm-step hm-step-done", "✓", "Submit"),
+            ("hm-step hm-step-done", "✓", "Guard"),
+            ("hm-step hm-step-skipped", "—", "Human Review"),
+            ("hm-step hm-step-blocked", "✕", "Blocked"),
+        ]
+        conns = ["hm-conn hm-conn-done", "hm-conn", "hm-conn hm-conn-blocked"]
+        parts: list[str] = []
+        for i, (cls, dot, label) in enumerate(spec):
+            parts.append(
+                f'<div class="{cls}"><div class="hm-step-dot">{dot}</div>'
+                f'<div class="hm-step-label">{label}</div></div>'
+            )
+            if i < len(spec) - 1:
+                parts.append(f'<div class="{conns[i]}"></div>')
+        st.markdown(f'<div class="hm-stepper">{"".join(parts)}</div>', unsafe_allow_html=True)
+        return
+
     steps = ["idle", "processing", "awaiting_review", "complete"]
     current = phase
     if current == "analysing":
@@ -406,9 +441,12 @@ def render_summary_card(
     specialists_total: int = 5,
     review_id: str | None = None,
     phase: str | None = None,
+    blocked: bool = False,
 ) -> None:
     chips = []
-    if phase:
+    if blocked:
+        chips.append(_chip_html("Status: Blocked", "error"))
+    elif phase:
         chips.append(_chip_html(f"Phase: {PHASE_LABELS.get(phase, phase)}", "neutral"))
     if guard_verdict:
         level = "ok" if guard_verdict == "ALLOW" else "warn" if guard_verdict == "HUMAN_REVIEW" else "error"

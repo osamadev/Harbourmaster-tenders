@@ -31,37 +31,68 @@ def _emit(event: dict) -> None:
         return
 
 
-def segment_node(state: ReviewState) -> dict:
-    """Segment the tender into stable clauses."""
-    tender_text = state["tender_text"]
-    guard = evaluate_content(tender_text, context="tender_input")
-    _emit(
-        {
-            "type": "guard_complete",
-            "verdict": guard.verdict,
-            "blocked": guard.blocked,
-        }
-    )
+def guard_node(state: ReviewState) -> dict:
+    """Inline security guard — runs first, before any other LLM work.
+
+    A DENY here halts the workflow (see ``route_after_guard``) so the flagged content never
+    reaches segmentation or the specialist analysts.
+    """
+    guard = evaluate_content(state["tender_text"], context="tender_input")
+    _emit({"type": "guard_complete", "verdict": guard.verdict, "blocked": guard.blocked})
     record_inspection_span(
         "harbourmaster.guard",
         {**guard.to_inspection(), "agent_id": "governance-guard-v1"},
         direction="guard",
     )
+    return {
+        "blocked": guard.blocked,
+        "guard_verdict": guard.verdict,
+        "block_reason": f"Guard verdict: {guard.verdict}" if guard.blocked else "",
+        "inspection_reports": [guard.to_inspection()],
+        "revision_round": 0,
+        "pending_revisions": {},
+        "specialist_findings": {},
+    }
+
+
+def route_after_guard(state: ReviewState) -> str:
+    """Hard-halt on a guard DENY; otherwise proceed to segmentation."""
+    if state.get("guard_verdict") == "DENY" or state.get("blocked"):
+        return "blocked"
+    return "segment"
+
+
+def blocked_node(state: ReviewState) -> dict:
+    """Terminal node for a guard-denied tender — records the block, no LLM calls."""
+    reason = state.get("block_reason") or "Guard verdict: DENY"
+    inspection = next(iter(state.get("inspection_reports", [])), {})
+    categories = inspection.get("categories") or []
+    cat_text = f" Categories: {', '.join(str(c) for c in categories)}." if categories else ""
+    risk = float(inspection.get("risk_score", 1.0) or 1.0)
+    _emit({"type": "blocked", "reason": reason})
+    return {
+        "blocked": True,
+        # Surface the guard's risk as the overall risk so the UI doesn't read 0.00 for a
+        # denied document.
+        "overall_risk": risk,
+        "draft_summary": f"BLOCKED by governance guard ({reason}).{cat_text} "
+        "Specialist analysis was not run because the input was denied at ingress.",
+        "findings": {"overall_risk": risk, "findings": []},
+        "verified_findings": [],
+    }
+
+
+def segment_node(state: ReviewState) -> dict:
+    """Segment the (guard-cleared) tender into stable clauses and retrieve context."""
     clauses, resp = segment_tender_clauses(state["tender_text"])
     _emit({"type": "segment_complete", "clause_count": len(clauses)})
     retrieval_context = retrieval_context_for_clauses(clauses)
     _emit({"type": "retrieval_complete", "snippet_count": len(retrieval_context)})
-    blocked = guard.blocked
-    reports = [guard.to_inspection(), resp.inspection]
+    reports = list(state.get("inspection_reports", [])) + [resp.inspection]
     return {
         "clauses": clauses,
         "retrieval_context": retrieval_context,
         "inspection_reports": reports,
-        "blocked": blocked,
-        "block_reason": f"Guard verdict: {guard.verdict}" if blocked else "",
-        "revision_round": 0,
-        "pending_revisions": {},
-        "specialist_findings": {},
     }
 
 
@@ -271,6 +302,8 @@ def governance_node(state: ReviewState) -> dict:
     """Pass-through node used for governance routing."""
     if state.get("blocked"):
         route = "human_review (guard blocked)"
+    elif state.get("guard_verdict") == "HUMAN_REVIEW":
+        route = "human_review (guard flagged)"
     elif state.get("overall_risk", 0.0) >= config.REVIEW_RISK_THRESHOLD:
         route = "human_review (risk threshold)"
     else:
@@ -282,6 +315,8 @@ def governance_node(state: ReviewState) -> dict:
 def route_governance(state: ReviewState) -> str:
     """Decide whether workflow needs human review."""
     if state.get("blocked"):
+        return "human_review"
+    if state.get("guard_verdict") == "HUMAN_REVIEW":
         return "human_review"
     if state.get("overall_risk", 0.0) >= config.REVIEW_RISK_THRESHOLD:
         return "human_review"
@@ -425,6 +460,8 @@ def build_graph():
     """Compile the advanced multi-agent review graph."""
     g = StateGraph(ReviewState)
 
+    g.add_node("guard", guard_node)
+    g.add_node("blocked", blocked_node)
     g.add_node("segment", segment_node)
     g.add_node("specialists", specialists_node)
     g.add_node("aggregate", aggregate_node)
@@ -435,7 +472,13 @@ def build_graph():
     g.add_node("negotiator", negotiator_node)
     g.add_node("draft", draft_node)
 
-    g.add_edge(START, "segment")
+    g.add_edge(START, "guard")
+    g.add_conditional_edges(
+        "guard",
+        route_after_guard,
+        {"blocked": "blocked", "segment": "segment"},
+    )
+    g.add_edge("blocked", END)
     g.add_edge("segment", "specialists")
     g.add_edge("specialists", "aggregate")
     g.add_edge("aggregate", "verifier")

@@ -175,6 +175,22 @@ def _inject_login_css() -> None:
         [data-testid="stVerticalBlockBorderWrapper"] {
             border-radius: 16px; box-shadow: 0 10px 30px rgba(15,39,66,.08); background: #FFFFFF;
         }
+        /* Branded "Continue with Google" button (white, slate border, Google "G" mark) */
+        .st-key-hm-google-login button, .st-key-hm-google-login a[kind] {
+            background: #FFFFFF !important; color: #3c4043 !important;
+            border: 1px solid #dadce0 !important; font-weight: 600 !important;
+        }
+        .st-key-hm-google-login button:hover:not([disabled]),
+        .st-key-hm-google-login a[kind]:hover {
+            background: #f8f9fa !important; border-color: #d2d3d5 !important; color: #3c4043 !important;
+        }
+        .st-key-hm-google-login button::before,
+        .st-key-hm-google-login a[kind]::before {
+            content: ""; display: inline-block; width: 18px; height: 18px;
+            margin-right: 10px; vertical-align: middle;
+            background: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0OCA0OCI+PHBhdGggZmlsbD0iI0VBNDMzNSIgZD0iTTI0IDkuNWMzLjU0IDAgNi43MSAxLjIyIDkuMjEgMy42bDYuODUtNi44NUMzNS45IDIuMzggMzAuNDcgMCAyNCAwIDE0LjYyIDAgNi41MSA1LjM4IDIuNTYgMTMuMjJsNy45OCA2LjE5QzEyLjQzIDEzLjcyIDE3Ljc0IDkuNSAyNCA5LjV6Ii8+PHBhdGggZmlsbD0iIzQyODVGNCIgZD0iTTQ2Ljk4IDI0LjU1YzAtMS41Ny0uMTUtMy4wOS0uMzgtNC41NUgyNHY5LjAyaDEyLjk0Yy0uNTggMi45Ni0yLjI2IDUuNDgtNC43OCA3LjE4bDcuNzMgNmM0LjUxLTQuMTggNy4wOS0xMC4zNiA3LjA5LTE3LjY1eiIvPjxwYXRoIGZpbGw9IiNGQkJDMDUiIGQ9Ik0xMC41MyAyOC41OWMtLjQ4LTEuNDUtLjc2LTIuOTktLjc2LTQuNTlzLjI3LTMuMTQuNzYtNC41OWwtNy45OC02LjE5Qy45MiAxNi40NiAwIDIwLjEyIDAgMjRjMCAzLjg4LjkyIDcuNTQgMi41NiAxMC43OGw3Ljk3LTYuMTl6Ii8+PHBhdGggZmlsbD0iIzM0QTg1MyIgZD0iTTI0IDQ4YzYuNDggMCAxMS45My0yLjEzIDE1Ljg5LTUuODFsLTcuNzMtNmMtMi4xNSAxLjQ1LTQuOTIgMi4zLTguMTYgMi4zLTYuMjYgMC0xMS41Ny00LjIyLTEzLjQ3LTkuOTFsLTcuOTggNi4xOUM2LjUxIDQyLjYyIDE0LjYyIDQ4IDI0IDQ4eiIvPjwvc3ZnPg==") no-repeat center / 18px 18px;
+        }
+        .st-key-hm-google-login button[disabled]::before { opacity: 0.45; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -184,26 +200,29 @@ def _inject_login_css() -> None:
 def _render_google_button(authenticator: stauth.Authenticate) -> None:
     st.markdown('<div class="hm-login-or">or</div>', unsafe_allow_html=True)
     oauth2 = _oauth2_config()
-    if oauth2:
-        try:
-            authenticator.experimental_guest_login(
+    # Keyed container → the wrapper gets a `st-key-hm-google-login` class that the login CSS
+    # targets to brand the button (white background + the official Google "G" mark).
+    with st.container(key="hm-google-login"):
+        if oauth2:
+            try:
+                authenticator.experimental_guest_login(
+                    "Continue with Google",
+                    provider="google",
+                    oauth2=oauth2,
+                    location="main",
+                    use_container_width=True,
+                )
+            except Exception as exc:  # noqa: BLE001
+                st.warning(f"Google login unavailable: {exc}")
+        else:
+            st.button(
                 "Continue with Google",
-                provider="google",
-                oauth2=oauth2,
-                location="main",
+                disabled=True,
                 use_container_width=True,
+                help="Set GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET and "
+                "GOOGLE_OAUTH_REDIRECT_URI to enable Google sign-in.",
             )
-        except Exception as exc:  # noqa: BLE001
-            st.warning(f"Google login unavailable: {exc}")
-    else:
-        st.button(
-            "Continue with Google",
-            disabled=True,
-            use_container_width=True,
-            help="Set GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET and "
-            "GOOGLE_OAUTH_REDIRECT_URI to enable Google sign-in.",
-        )
-        st.caption("Google sign-in is not configured.")
+            st.caption("Google sign-in is not configured.")
 
 
 def _render_gate(authenticator: stauth.Authenticate, creds: dict[str, Any]) -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -43,7 +44,8 @@ RESUME_WORKFLOW_STEPS: tuple[dict[str, str], ...] = (
 )
 
 NODE_TO_STEPS: dict[str, list[str]] = {
-    "segment": ["guard", "segment", "retrieval"],
+    "guard": ["guard"],
+    "segment": ["segment", "retrieval"],
     "specialists": ["specialists"],
     "aggregate": ["aggregate"],
     "verifier": ["verifier"],
@@ -154,9 +156,23 @@ class WorkflowProgressTracker:
     def apply_node_update(self, node_name: str, update: dict[str, Any] | None = None) -> None:
         """Mark steps complete when a LangGraph node finishes."""
         update = update or {}
-        if node_name == "segment":
-            if self.statuses.get("guard") != "done":
-                self.complete("guard", self.metrics.get("guard_verdict"))
+        if node_name == "guard":
+            verdict = update.get("guard_verdict")
+            if verdict:
+                self.metrics["guard_verdict"] = verdict
+            if update.get("blocked"):
+                self.metrics["guard_blocked"] = True
+            self.complete("guard", verdict)
+        elif node_name == "blocked":
+            # Guard denied the input: nothing else ran — mark the remaining steps skipped so
+            # the progress bar resolves to a clean blocked state.
+            self.metrics["guard_blocked"] = True
+            for step in self.steps:
+                sid = step["id"]
+                if self.statuses.get(sid) not in {"done", "skipped"} and sid != "guard":
+                    self.skip(sid, "blocked at ingress")
+            self._log("Workflow blocked by governance guard (DENY)")
+        elif node_name == "segment":
             if self.statuses.get("segment") != "done":
                 clause_count = len(update.get("clauses", []))
                 self.metrics["clause_count"] = clause_count
@@ -165,9 +181,6 @@ class WorkflowProgressTracker:
                 snippet_count = len(update.get("retrieval_context", []))
                 self.metrics["retrieval_count"] = snippet_count
                 self.complete("retrieval", f"{snippet_count} snippets")
-            if update.get("blocked"):
-                self.metrics["guard_blocked"] = True
-                self.metrics["guard_verdict"] = update.get("block_reason", "DENY")
         elif node_name == "specialists":
             self.complete("specialists", f"{self._specialists_done_count()}/{len(SPECIALIST_KEYS)} analysts")
         elif node_name == "aggregate":
@@ -351,13 +364,24 @@ def stream_graph_run(
     """Stream a graph run with live progress. Returns (final_state, interrupt_payload)."""
     interrupt_payload: dict[str, Any] | None = None
 
-    for mode, chunk in graph.stream(inputs, run_config, stream_mode=["updates", "custom"]):
-        payload = tracker.handle_stream_chunk(mode, chunk)
-        if payload is not None:
-            interrupt_payload = payload
-        tracker.render()
-        if on_tick is not None:
-            on_tick(tracker.sidebar_snapshot())
+    # Tag this run's spans with the review's thread id so telemetry can be grouped
+    # per review (powers the Copilot's review_telemetry tool).
+    thread_id = str((run_config or {}).get("configurable", {}).get("thread_id", "") or "")
+    try:
+        from openinference.instrumentation import using_attributes
+
+        session_ctx = using_attributes(session_id=thread_id) if thread_id else nullcontext()
+    except Exception:  # noqa: BLE001
+        session_ctx = nullcontext()
+
+    with session_ctx:
+        for mode, chunk in graph.stream(inputs, run_config, stream_mode=["updates", "custom"]):
+            payload = tracker.handle_stream_chunk(mode, chunk)
+            if payload is not None:
+                interrupt_payload = payload
+            tracker.render()
+            if on_tick is not None:
+                on_tick(tracker.sidebar_snapshot())
 
     if interrupt_payload is not None:
         return None, interrupt_payload

@@ -27,6 +27,7 @@ from app.utils.render import (  # noqa: E402
     display_inspection_reports,
     display_specialist_findings,
     display_verifier_notes,
+    render_tender_document,
 )
 from app.utils.workflow_progress import (  # noqa: E402
     WorkflowProgressTracker,
@@ -179,6 +180,7 @@ def _render_workflow_summary() -> None:
         specialists_done=live.get("specialists_done"),
         specialists_total=live.get("specialists_total", 5),
         review_id=st.session_state.review_id,
+        blocked=bool(result.get("blocked")),
     )
 
 
@@ -187,8 +189,9 @@ _stepper_slot = st.empty()
 
 def _draw_stepper(live: dict[str, Any] | None = None) -> None:
     snapshot = live if live is not None else (st.session_state.live_workflow or {})
+    blocked = bool((st.session_state.final_result or {}).get("blocked"))
     with _stepper_slot.container():
-        render_phase_stepper(st.session_state.phase, live=snapshot)
+        render_phase_stepper(st.session_state.phase, live=snapshot, blocked=blocked)
 
 
 _draw_stepper()
@@ -317,9 +320,8 @@ elif st.session_state.phase == "awaiting_review":
         display_clauses(payload.get("clauses", []))
         display_specialist_findings(payload.get("specialist_findings", {}))
         display_verifier_notes(payload.get("verifier_notes", []))
-        st.markdown("### Tender Text")
-        with st.expander("View original tender", expanded=False):
-            st.markdown(st.session_state.tender_text)
+        st.markdown("### Tender Document")
+        render_tender_document(st.session_state.tender_text, title="Original tender", expanded=False)
 
     with right:
         st.markdown("### Reviewer Decision")
@@ -361,7 +363,12 @@ elif st.session_state.phase == "awaiting_review":
 
 elif st.session_state.phase == "complete":
     result = st.session_state.final_result or {}
-    st.success("Review workflow complete.")
+    is_blocked = bool(result.get("blocked"))
+    if is_blocked:
+        st.error(f"⛔ Blocked by the governance guard — {result.get('block_reason', 'DENY')}")
+        st.caption("The input was denied at ingress; specialist analysis was not run.")
+    else:
+        st.success("Review workflow complete.")
     if st.session_state.review_id:
         st.success(f"Review saved as `{st.session_state.review_id}` — view it in Review History.")
         _render_history_link()
@@ -380,27 +387,35 @@ elif st.session_state.phase == "complete":
         reports = result.get("inspection_reports", [])
         st.metric("Inspection Reports", len(reports))
     with col4:
-        decision = result.get("review_decision", {})
-        st.metric("Decision", decision.get("decision", "auto-approved").title())
+        if is_blocked:
+            decision_label = "Blocked"
+        else:
+            decision = result.get("review_decision", {})
+            decision_label = decision.get("decision", "auto-approved").title()
+        st.metric("Decision", decision_label)
     with col5:
         st.metric("Policies Considered", len(result.get("corporate_policies", [])))
 
-    findings = result.get("findings", {})
-    if findings:
-        st.markdown("### Verified Findings")
-        display_findings(findings)
-        st.markdown("### Compliance Findings")
-        display_compliance_findings(findings)
+    if not is_blocked:
+        findings = result.get("findings", {})
+        if findings:
+            st.markdown("### Verified Findings")
+            display_findings(findings)
+            st.markdown("### Compliance Findings")
+            display_compliance_findings(findings)
 
-    display_clauses(result.get("clauses", []))
-    display_specialist_findings(result.get("specialist_findings", {}))
-    display_verifier_notes(result.get("verifier_notes", []))
-    display_counter_clauses(result.get("counter_clauses", []))
+        display_clauses(result.get("clauses", []))
+        display_specialist_findings(result.get("specialist_findings", {}))
+        display_verifier_notes(result.get("verifier_notes", []))
+        display_counter_clauses(result.get("counter_clauses", []))
 
     reports = result.get("inspection_reports", [])
     if reports:
         st.markdown("### Governance Inspection Reports")
         display_inspection_reports(reports)
+
+    st.markdown("### Tender Document")
+    render_tender_document(st.session_state.tender_text, title="Reviewed tender", expanded=False)
 
     st.divider()
     if st.button("Start New Review"):

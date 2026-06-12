@@ -27,3 +27,5 @@ class CopilotResult:
     sources: list[SourceCitation] = field(default_factory=list)
     tool_trace: list[dict[str, Any]] = field(default_factory=list)
     console_links: list[str] = field(default_factory=list)
+    charts: list[dict[str, Any]] = field(default_factory=list)
+    steps: list[dict[str, Any]] = field(default_factory=list)

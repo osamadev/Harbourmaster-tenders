@@ -12,6 +12,35 @@ def risk_label(level: str) -> str:
     return f"{colours.get(level, '⚪')} {level}"
 
 
+def render_tender_document(
+    text: str,
+    *,
+    title: str = "Original tender document",
+    truncated: bool = False,
+    expanded: bool = False,
+    height: int = 460,
+) -> None:
+    """Collapsible, scrollable, markdown-rendered viewer for a tender document.
+
+    Renders the document as formatted markdown (headings/clauses) inside a fixed-height
+    scrollable card, with a header showing a character count, a truncation note, and a
+    raw-text toggle.
+    """
+    text = (text or "").strip()
+    if not text:
+        st.info("No tender text available.")
+        return
+
+    suffix = " · truncated when saved" if truncated else ""
+    with st.expander(f"📄 {title} · {len(text):,} characters{suffix}", expanded=expanded):
+        show_raw = st.toggle("Raw text", value=False, key=f"tender-raw-{abs(hash((title, text[:64])))}")
+        with st.container(height=height, border=True):
+            if show_raw:
+                st.code(text, language="markdown")
+            else:
+                st.markdown(text)
+
+
 def risk_meter(value: float | None, threshold: float = 0.6) -> str:
     """Return an HTML risk meter: track + banded fill + threshold tick + value.
 

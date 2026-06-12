@@ -71,9 +71,10 @@ services:
       MCP_ENABLED: ${MCP_ENABLED:-true}
       MCP_PHOENIX_ENABLED: ${MCP_PHOENIX_ENABLED:-true}
       MCP_ELASTIC_ENABLED: ${MCP_ELASTIC_ENABLED:-true}
-      MCP_PHOENIX_PACKAGE: ${MCP_PHOENIX_PACKAGE:-@arizeai/phoenix-mcp@4.0.13}
-      MCP_ELASTIC_PACKAGE: ${MCP_ELASTIC_PACKAGE:-@elastic/mcp-server-elasticsearch@0.4.0}
+      MCP_PHOENIX_PACKAGE: ${MCP_PHOENIX_PACKAGE:-@arizeai/phoenix-mcp@4.0.14}
+      MCP_ELASTIC_PACKAGE: ${MCP_ELASTIC_PACKAGE:-@elastic/mcp-server-elasticsearch@0.3.1}
       MCP_LOAD_TIMEOUT_SEC: ${MCP_LOAD_TIMEOUT_SEC:-45}
+      MCP_DATA_FIRST: ${MCP_DATA_FIRST:-true}
       AUTH_ENABLED: ${AUTH_ENABLED:-false}
       ALLOW_ANONYMOUS: ${ALLOW_ANONYMOUS:-true}
       AUTH_COOKIE_NAME: ${AUTH_COOKIE_NAME:-harbourmaster_auth}

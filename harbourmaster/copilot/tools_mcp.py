@@ -11,6 +11,26 @@ _mcp_tools: list[Any] | None = None
 _mcp_error: str | None = None
 
 
+def _base_env() -> dict[str, str]:
+    """A safe base environment (crucially including PATH) for stdio subprocesses.
+
+    When a custom ``env`` is given to an MCP stdio server, the SDK uses it verbatim — so
+    omitting PATH means the spawned ``npx``/``node`` can't be found ("...: not found").
+    """
+    try:
+        from mcp.client.stdio import get_default_environment
+
+        return dict(get_default_environment())
+    except Exception:  # noqa: BLE001
+        import os
+
+        keep = {
+            "PATH", "HOME", "PATHEXT", "SYSTEMROOT", "SYSTEMDRIVE", "TEMP", "TMP",
+            "APPDATA", "LOCALAPPDATA", "USERPROFILE", "NODE_PATH",
+        }
+        return {k: v for k, v in os.environ.items() if k in keep}
+
+
 def _phoenix_mcp_server(phoenix, mcp) -> dict[str, Any]:
     args = ["-y", mcp.phoenix_package, "--baseUrl", phoenix.api_base_url]
     if phoenix.api_key:
@@ -20,6 +40,7 @@ def _phoenix_mcp_server(phoenix, mcp) -> dict[str, Any]:
 
 def _elastic_mcp_server(elastic, mcp) -> dict[str, Any]:
     env = {
+        **_base_env(),
         "ES_URL": elastic.url,
         "ES_VERSION": "8",
         "OTEL_LOG_LEVEL": "none",

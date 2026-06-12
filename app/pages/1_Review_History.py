@@ -24,6 +24,7 @@ from app.utils.render import (  # noqa: E402
     display_inspection_reports,
     display_specialist_findings,
     display_verifier_notes,
+    render_tender_document,
 )
 from harbourmaster.reviews import delete_review, list_reviews, load_review  # noqa: E402
 
@@ -65,7 +66,12 @@ if not reviews:
         st.page_link("Home.py", label="Go to Tender Review", icon="⚓")
     st.stop()
 
-decisions = [str(row.get("decision", "auto-approved")) for row in reviews]
+def _decision_label(row: dict) -> str:
+    """A guard-blocked review reads as 'blocked', not the (absent) human decision."""
+    return "blocked" if row.get("blocked") else str(row.get("decision", "auto-approved"))
+
+
+decisions = [_decision_label(row) for row in reviews]
 risks = [float(row.get("overall_risk", 0.0)) for row in reviews]
 approved_count = sum(1 for d in decisions if d == "approve")
 rejected_count = sum(1 for d in decisions if d == "reject")
@@ -91,7 +97,7 @@ with fcol3:
 filtered = [
     row
     for row in reviews
-    if row.get("decision") in selected_decisions
+    if _decision_label(row) in selected_decisions
     and float(row.get("overall_risk", 0.0)) >= min_risk
     and title_query.lower().strip() in str(row.get("title", "")).lower()
 ]
@@ -107,7 +113,7 @@ for row in filtered:
             "Created": row.get("created_at", ""),
             "Title": row.get("title", ""),
             "Risk": float(row.get("overall_risk", 0.0)),
-            "Decision": row.get("decision", "auto-approved"),
+            "Decision": _decision_label(row),
             "Findings": int(row.get("finding_count", 0)),
             "Review ID": row.get("id", ""),
         }
@@ -136,33 +142,42 @@ st.markdown(f"## {review.get('title', 'Untitled contract review')}")
 st.caption(f"Review ID: `{review.get('id', '')}` • Created: `{review.get('created_at', '')}`")
 
 m1, m2, m3, m4 = st.columns(4)
-decision = review.get("review_decision", {}).get("decision", "auto-approved")
+if review.get("blocked"):
+    decision_label = "Blocked"
+else:
+    decision_label = str(review.get("review_decision", {}).get("decision", "auto-approved")).title()
 m1.metric("Overall Risk", f"{float(review.get('overall_risk', 0.0)):.2f}")
-m2.metric("Decision", str(decision).title())
+m2.metric("Decision", decision_label)
 m3.metric("Guard Blocked", "Yes" if review.get("blocked") else "No")
 m4.metric("Inspection Reports", len(review.get("inspection_reports", [])))
+
+if review.get("blocked"):
+    st.error(f"⛔ Blocked by the governance guard — {review.get('block_reason', 'Guard verdict: DENY')}")
 
 st.markdown("### Draft Summary")
 st.markdown(review.get("draft_summary", "(no summary produced)"))
 
-st.markdown("### Verified Findings")
-display_findings(review.get("findings", {}))
-st.markdown("### Compliance Findings")
-display_compliance_findings(review.get("findings", {}))
-display_clauses(review.get("clauses", []))
-display_specialist_findings(review.get("specialist_findings", {}))
-display_verifier_notes(review.get("verifier_notes", []))
-display_counter_clauses(review.get("counter_clauses", []))
+if not review.get("blocked"):
+    st.markdown("### Verified Findings")
+    display_findings(review.get("findings", {}))
+    st.markdown("### Compliance Findings")
+    display_compliance_findings(review.get("findings", {}))
+    display_clauses(review.get("clauses", []))
+    display_specialist_findings(review.get("specialist_findings", {}))
+    display_verifier_notes(review.get("verifier_notes", []))
+    display_counter_clauses(review.get("counter_clauses", []))
 
 reports = review.get("inspection_reports", [])
 if reports:
     st.markdown("### Governance Inspection Reports")
     display_inspection_reports(reports)
 
-with st.expander("Original Tender Text", expanded=False):
-    st.text(review.get("tender_text", ""))
-    if review.get("tender_text_truncated"):
-        st.caption("Tender text was truncated when saved.")
+st.markdown("### Tender Document")
+render_tender_document(
+    review.get("tender_text", ""),
+    title="Original tender document",
+    truncated=bool(review.get("tender_text_truncated")),
+)
 
 st.divider()
 action_col1, action_col2, action_col3 = st.columns(3)

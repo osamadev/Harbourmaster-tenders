@@ -70,6 +70,16 @@ def record_inspection_span(name: str, report: dict[str, Any], direction: str = "
             span.set_attribute("inspection.reason", _coerce_str(report.get("reason", "")))
             span.set_attribute("inspection.risk_score", float(report.get("risk_score", 0.0) or 0.0))
             span.set_attribute("inspection.categories", categories_text)
+
+            # Inherit OpenInference context attributes (e.g. session.id from the
+            # workflow run) so inspection spans group by review like the LLM spans.
+            try:
+                from openinference.instrumentation import get_attributes_from_context
+
+                for attr_key, attr_value in get_attributes_from_context():
+                    span.set_attribute(attr_key, attr_value)
+            except Exception:  # noqa: BLE001
+                pass
     except Exception:  # noqa: BLE001
         return
 

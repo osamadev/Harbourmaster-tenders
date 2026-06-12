@@ -24,6 +24,7 @@ class ReviewState(TypedDict, total=False):
 
     # --- governance ---
     blocked: bool  # True when the inline guard returns DENY
+    guard_verdict: str  # ALLOW | HUMAN_REVIEW | DENY (ingress guard verdict)
     block_reason: str
     inspection_reports: list[dict]  # guard + model inspection payloads for audit
     review_decision: dict[str, Any]  # human decision returned from interrupt()

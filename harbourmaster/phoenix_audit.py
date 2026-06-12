@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import httpx
 import pandas as pd
 
 from harbourmaster import config
+from harbourmaster.pricing import estimate_cost
 
 MAX_SPANS = 500
 PAGE_SIZE = 100
@@ -72,6 +74,17 @@ def resolve_phoenix_project_identifier(*, force_refresh: bool = False) -> str:
     if not force_refresh and cache_key in _project_identifier_cache:
         return _project_identifier_cache[cache_key]
 
+    # MCP-first: resolve the project id via the Phoenix MCP server.
+    try:
+        from harbourmaster.mcp_client import mcp_resolve_project_id
+
+        pid = mcp_resolve_project_id(project_name)
+        if pid:
+            _project_identifier_cache[cache_key] = pid
+            return pid
+    except Exception:  # noqa: BLE001
+        pass
+
     headers = _phoenix_headers()
     try:
         response = httpx.get(
@@ -124,8 +137,17 @@ def _fetch_project_spans(base: str, project_name: str, headers: dict[str, str]) 
     return entries[:MAX_SPANS]
 
 
+_last_source = "none"
+
+
+def last_source() -> str:
+    """Where the most recent span fetch came from: 'mcp', 'rest', or 'none'."""
+    return _last_source
+
+
 def load_entries() -> list[dict]:
-    """Read recent spans from Phoenix; return empty list if unavailable."""
+    """Read recent spans from Phoenix (MCP-first, REST fallback); empty if unavailable."""
+    global _last_source
     base = config.PHOENIX_BASE_URL.rstrip("/")
     headers = _phoenix_headers()
     project_candidates = [config.PHOENIX_PROJECT_NAME, "default"]
@@ -136,17 +158,56 @@ def load_entries() -> list[dict]:
         if not project or project in seen:
             continue
         seen.add(project)
+
+        # MCP-first: pull spans through the Phoenix MCP server.
+        try:
+            from harbourmaster.mcp_client import mcp_get_spans
+
+            spans = mcp_get_spans(project=project, limit=MAX_SPANS)
+            if spans:
+                _last_source = "mcp"
+                return spans
+        except Exception:  # noqa: BLE001
+            pass
+
+        # Native fallback: Phoenix REST.
         try:
             entries = _fetch_project_spans(base, project, headers)
             if entries:
+                _last_source = "rest"
                 return entries
         except Exception:  # noqa: BLE001
             continue
+
+    _last_source = "none"
     return []
 
 
-def load_dataframe() -> pd.DataFrame:
-    """Load governance telemetry into a DataFrame."""
+_SPECIALIST_HINTS = ("legal", "financial", "delivery", "ip_data", "compliance")
+_WORKFLOW_HINTS = ("segment", "verifier", "negotiator", "drafter")
+
+
+def _classify_component(attrs: dict[str, Any], agent_id: str, direction: str, span_type: str) -> str:
+    """Tag each span as copilot / guard / specialist / workflow / other."""
+    meta = str(attrs.get("metadata") or "")
+    if "hm_component" in meta and "copilot" in meta:
+        return "copilot"
+    aid = str(agent_id or "").lower()
+    if direction == "guard" or "guard" in aid:
+        return "guard"
+    if any(hint in aid for hint in _SPECIALIST_HINTS):
+        return "specialist"
+    if span_type == "inspection" or any(hint in aid for hint in _WORKFLOW_HINTS):
+        return "workflow"
+    # Copilot spans are already excluded, so any remaining model-call span is the
+    # workflow's own LLM traffic (raw "ChatCompletion" spans carry tokens/cost).
+    if span_type == "llm":
+        return "workflow"
+    return "other"
+
+
+def _build_dataframe() -> pd.DataFrame:
+    """Read spans from Phoenix into an enriched governance DataFrame."""
     entries = load_entries()
     if not entries:
         return pd.DataFrame()
@@ -157,6 +218,7 @@ def load_dataframe() -> pd.DataFrame:
         if not isinstance(attrs_raw, dict):
             attrs_raw = {}
         attrs = _flatten(attrs_raw)
+
         risk_raw = attrs.get("inspection.risk_score", attrs.get("risk_score"))
         try:
             risk_score = float(risk_raw or 0.0)
@@ -177,31 +239,98 @@ def load_dataframe() -> pd.DataFrame:
             or attrs.get("verdict")
             or _status_to_action(entry.get("status_code") or entry.get("status"))
         )
-        direction = (
-            attrs.get("openinference.span.kind")
-            or attrs.get("direction")
-            or "model_call"
+        direction = str(
+            attrs.get("openinference.span.kind") or attrs.get("direction") or "model_call"
+        )
+        agent_id = attrs.get("agent_id") or attrs.get("openinference.user_id") or entry.get("name", "")
+
+        prompt_tokens = int(attrs.get("llm.token_count.prompt", 0) or 0)
+        completion_tokens = int(attrs.get("llm.token_count.completion", 0) or 0)
+        total_tokens = int(
+            attrs.get("llm.token_count.total", prompt_tokens + completion_tokens) or 0
+        )
+        model = str(attrs.get("llm.model_name") or "")
+        cost_usd = (
+            estimate_cost(model, prompt_tokens, completion_tokens)
+            if (prompt_tokens or completion_tokens)
+            else 0.0
         )
 
-        row = {
-            "timestamp": entry.get("start_time") or entry.get("timestamp", ""),
-            "request_id": entry.get("id") or entry.get("span_id") or entry.get("trace_id", ""),
-            "direction": str(direction),
-            "action": str(verdict or "UNKNOWN").upper(),
-            "rule_name": attrs.get("inspection.reason", ""),
-            "deny_message": attrs.get("inspection.reason", ""),
-            "agent_id": attrs.get("agent_id") or attrs.get("openinference.user_id") or entry.get("name", ""),
-            "prompt": attrs.get("input.value", ""),
-            "token_count": int(attrs.get("llm.token_count.total", 0) or 0),
-            "risk_score": risk_score,
-            "has_explicit_risk": has_explicit_risk,
-            "intent_category": ", ".join(category_list),
-            "mismatches": [],
-            "has_mismatches": False,
-        }
-        rows.append(row)
+        has_inspection = "inspection.verdict" in attrs or "inspection.risk_score" in attrs
+        span_type = "inspection" if has_inspection else ("llm" if (model or total_tokens) else "other")
+        component = _classify_component(attrs, agent_id, direction, span_type)
+
+        rows.append(
+            {
+                "timestamp": entry.get("start_time") or entry.get("timestamp", ""),
+                "end_time": entry.get("end_time", ""),
+                "request_id": entry.get("id") or entry.get("span_id") or entry.get("trace_id", ""),
+                "trace_id": entry.get("trace_id", ""),
+                "session_id": str(attrs.get("session.id") or ""),
+                "direction": direction,
+                "action": str(verdict or "UNKNOWN").upper(),
+                "rule_name": attrs.get("inspection.reason", ""),
+                "deny_message": attrs.get("inspection.reason", ""),
+                "agent_id": agent_id,
+                "component": component,
+                "span_type": span_type,
+                "model": model,
+                "prompt": attrs.get("input.value", ""),
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens,
+                "token_count": total_tokens,  # legacy alias for the dashboard
+                "cost_usd": cost_usd,
+                "risk_score": risk_score,
+                "has_explicit_risk": has_explicit_risk,
+                "intent_category": ", ".join(category_list),
+                "mismatches": [],
+                "has_mismatches": False,
+            }
+        )
 
     df = pd.DataFrame(rows)
-    if "timestamp" in df.columns and not df.empty:
-        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+    if df.empty:
+        return df
+    start = pd.to_datetime(df["timestamp"], errors="coerce", utc=True)
+    end = pd.to_datetime(df["end_time"], errors="coerce", utc=True)
+    df["timestamp"] = start
+    df["latency_ms"] = (end - start).dt.total_seconds() * 1000.0
     return df
+
+
+_CACHE: dict[str, Any] = {"df": None, "ts": 0.0}
+_CACHE_TTL = 5.0
+
+
+def clear_dataframe_cache() -> None:
+    """Drop the cached span frame (call after config reload or to force a refresh)."""
+    _CACHE["df"] = None
+    _CACHE["ts"] = 0.0
+
+
+_GOVERNANCE_COMPONENTS = {"guard", "specialist", "workflow"}
+
+
+def load_dataframe(*, governance_only: bool = True, force: bool = False) -> pd.DataFrame:
+    """Load governance telemetry into an enriched DataFrame.
+
+    By default only governance components (guard / specialist / workflow) are kept, which
+    drops Copilot self-spans and infrastructure noise (e.g. Elasticsearch client spans) so
+    the numbers reflect the review pipeline. Pass ``governance_only=False`` for everything.
+    Results are briefly cached so multiple tool calls in one Copilot turn don't each
+    re-fetch up to 500 spans.
+    """
+    now = time.time()
+    if not force and _CACHE["df"] is not None and (now - _CACHE["ts"]) < _CACHE_TTL:
+        df = _CACHE["df"]
+    else:
+        df = _build_dataframe()
+        _CACHE["df"] = df
+        _CACHE["ts"] = now
+
+    if df.empty:
+        return df
+    if governance_only and "component" in df.columns:
+        return df[df["component"].isin(_GOVERNANCE_COMPONENTS)].copy()
+    return df.copy()

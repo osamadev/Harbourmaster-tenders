@@ -158,9 +158,25 @@ def index_review_artifact(kind: str, title: str, body: str, metadata: dict[str, 
 
 
 def search(query: str, *, size: int = 5, doc_types: list[str] | None = None) -> list[dict[str, Any]]:
-    """Run text search against indexed procurement memory."""
+    """Run text search against indexed procurement memory (MCP-first, native fallback)."""
     if not query.strip() or not enabled():
         return []
+
+    # MCP-first: search via the Elastic MCP server.
+    try:
+        from harbourmaster.mcp_client import mcp_elastic_search
+
+        hits = mcp_elastic_search(
+            query=query,
+            size=size,
+            index=f"{config.ELASTIC_INDEX_PREFIX}-*",
+            doc_types=doc_types,
+        )
+        if hits is not None:
+            return hits
+    except Exception:  # noqa: BLE001
+        pass
+
     try:
         ensure_indexes()
         filters: list[dict[str, Any]] = []
