@@ -18,6 +18,7 @@ from app.utils.layout import (  # noqa: E402
     render_phase_stepper,
     render_summary_card,
 )
+from app.utils.auth import require_auth  # noqa: E402
 from app.utils.render import (  # noqa: E402
     display_clauses,
     display_compliance_findings,
@@ -74,6 +75,7 @@ if "active_sample" not in st.session_state:
 # Reverse lookup: sample filename -> human label (for sidebar demo buttons).
 _SAMPLE_BY_NAME = {path.name: label for label, path in SAMPLE_TENDERS.items()}
 
+require_auth()
 init_telemetry()
 
 

@@ -18,11 +18,13 @@ from app.utils.config_ui import (  # noqa: E402
     render_validation_results,
     secret_placeholder,
 )
+from app.utils.auth import is_admin, require_auth  # noqa: E402
 from app.utils.layout import init_page, render_app_sidebar  # noqa: E402
 from harbourmaster import config  # noqa: E402
 from harbourmaster.copilot.health import check_elastic, run_health_checks  # noqa: E402
 from harbourmaster.copilot.tools_mcp import reset_mcp_tools  # noqa: E402
 from harbourmaster.runtime_config import (  # noqa: E402
+    SECRET_KEYS,
     clear_runtime_config,
     export_env_snippet,
     load_runtime_config,
@@ -35,9 +37,16 @@ init_page(
     icon="⚙️",
     subtitle="Modes, credentials, and MCP settings — env vars override saved JSON.",
 )
+require_auth()
 snapshot = get_snapshot()
 
 render_app_sidebar("configuration")
+
+if not is_admin():
+    st.warning(
+        "You are signed in as a standard user. API-key and password fields are locked — "
+        "only an admin can change server secrets. (Guest sessions use their own key.)"
+    )
 
 if str(snapshot.raw.get("RUNNING_IN_DOCKER", "")).lower() in {"1", "true", "yes"}:
     st.info(
@@ -262,6 +271,14 @@ if elastic_api_key.strip():
     pending_updates["ELASTIC_API_KEY"] = elastic_api_key.strip()
 if gemini_key.strip():
     pending_updates["GEMINI_API_KEY"] = gemini_key.strip()
+
+# Quota protection: only admins may persist server secrets (env still overrides anyway).
+if not is_admin():
+    blocked = [k for k in SECRET_KEYS if k in pending_updates]
+    for key in blocked:
+        pending_updates.pop(key, None)
+    if blocked:
+        st.info("Secret fields were ignored — admin access is required to change them.")
 
 if action1.button("Save configuration", type="primary"):
     merged_runtime = {**load_runtime_config(), **pending_updates}

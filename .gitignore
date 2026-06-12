@@ -8,6 +8,7 @@ venv/
 .env
 data/audit/*.jsonl
 configs/runtime_settings/runtime_config.json
+configs/runtime_settings/auth_credentials.yaml
 .DS_Store
 .idea/
 .vscode/

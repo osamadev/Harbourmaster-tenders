@@ -13,6 +13,7 @@ _root = Path(__file__).resolve().parents[2]
 if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
+from app.utils.auth import require_auth  # noqa: E402
 from app.utils.layout import init_page, inject_theme_css, render_app_sidebar  # noqa: E402
 from app.utils.links import render_external_link  # noqa: E402
 from harbourmaster.copilot import CopilotMessage, chat, reset_agent, run_health_checks  # noqa: E402
@@ -32,6 +33,7 @@ init_page(
     icon="🧭",
     subtitle="Chat over guard telemetry, saved reviews, procurement memory, and Phoenix experiments.",
 )
+require_auth()
 
 def _run_async(coro):
     loop = asyncio.new_event_loop()

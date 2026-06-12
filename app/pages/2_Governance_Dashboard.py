@@ -12,6 +12,7 @@ if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
 from app.utils.audit import load_dataframe  # noqa: E402
+from app.utils.auth import require_auth  # noqa: E402
 from app.utils.layout import init_page, render_app_sidebar  # noqa: E402
 
 init_page(
@@ -19,6 +20,7 @@ init_page(
     icon="📊",
     subtitle="Phoenix traces + span attributes — real-time governance visibility",
 )
+require_auth()
 df = load_dataframe()
 
 if df.empty:

@@ -14,6 +14,7 @@ _root = Path(__file__).resolve().parents[2]
 if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
+from app.utils.auth import require_auth  # noqa: E402
 from app.utils.layout import init_page, render_app_sidebar  # noqa: E402
 from scripts.run_redteam import load_cases, run_case  # noqa: E402
 
@@ -24,6 +25,7 @@ init_page(
     icon="🛡️",
     subtitle="Adversarial testing with guard verdicts and Phoenix experiment logging",
 )
+require_auth()
 
 def _redteam_sidebar() -> None:
     st.metric("Cases Loaded", len(cases))

@@ -289,6 +289,9 @@ def render_app_sidebar(
             unsafe_allow_html=True,
         )
         render_status_chips(compact=True)
+        from app.utils.auth import render_user_chip
+
+        render_user_chip()
         st.divider()
         render_grouped_nav(current_page)
         if extra_blocks:

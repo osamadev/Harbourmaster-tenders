@@ -12,10 +12,12 @@ from harbourmaster.copilot.models import CopilotMessage, CopilotResult, SourceCi
 from harbourmaster.copilot.prompts import SYSTEM_PROMPT
 from harbourmaster.copilot.tools_mcp import load_mcp_tools, reset_mcp_tools
 from harbourmaster.copilot.tools_native import native_tools
+from harbourmaster.runtime_keys import resolve_gemini_key
 from harbourmaster.telemetry import init_telemetry
 
 _agent = None
 _use_mcp = False
+_agent_key: str | None = None
 
 
 def _needs_mcp(message: str) -> bool:
@@ -44,7 +46,7 @@ async def _build_agent(*, include_mcp: bool):
     llm = ChatOpenAI(
         model=config.DRAFTER_MODEL,
         temperature=0.1,
-        api_key=config.GEMINI_API_KEY,
+        api_key=resolve_gemini_key() or config.GEMINI_API_KEY,
         base_url=config.GEMINI_BASE_URL,
     )
     return create_react_agent(llm, tools)
@@ -52,9 +54,10 @@ async def _build_agent(*, include_mcp: bool):
 
 async def reset_agent() -> None:
     """Drop cached agent and MCP connections."""
-    global _agent, _use_mcp
+    global _agent, _use_mcp, _agent_key
     _agent = None
     _use_mcp = False
+    _agent_key = None
     reset_mcp_tools()
 
 
@@ -149,13 +152,15 @@ def _answer_from_messages(messages: list[Any]) -> str:
 
 async def chat(message: str, history: list[CopilotMessage] | None = None) -> CopilotResult:
     """Run a conversational governance query with optional prior turns."""
-    global _agent, _use_mcp
+    global _agent, _use_mcp, _agent_key
 
     history = history or []
     include_mcp = _needs_mcp(message)
-    if _agent is None or include_mcp != _use_mcp:
+    current_key = resolve_gemini_key() or config.GEMINI_API_KEY
+    if _agent is None or include_mcp != _use_mcp or current_key != _agent_key:
         _agent = await _build_agent(include_mcp=include_mcp)
         _use_mcp = include_mcp
+        _agent_key = current_key
 
     payload_messages: list[dict[str, str]] = [{"role": "system", "content": SYSTEM_PROMPT}]
     payload_messages.extend(_history_messages(history))
@@ -167,6 +172,7 @@ async def chat(message: str, history: list[CopilotMessage] | None = None) -> Cop
         await reset_agent()
         _agent = await _build_agent(include_mcp=include_mcp)
         _use_mcp = include_mcp
+        _agent_key = current_key
         result = await _agent.ainvoke({"messages": payload_messages})
 
     messages = result.get("messages", [])

@@ -1,5 +1,6 @@
 """The Harbourmaster advanced multi-agent tender-review graph."""
 
+import contextvars
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from langgraph.checkpoint.memory import MemorySaver
@@ -85,8 +86,13 @@ def specialists_node(state: ReviewState) -> dict:
         _emit({"type": "specialist_start", "specialist": specialist, "revision_round": revision_round})
 
     with ThreadPoolExecutor(max_workers=len(targets) or 1) as executor:
+        # Run each worker inside a fresh copy of the current context so the
+        # per-session Gemini key (a ContextVar) propagates into the thread pool.
+        # A separate copy per task is required — one Context can't be entered by
+        # two threads at once.
         futures = {
             executor.submit(
+                contextvars.copy_context().run,
                 analyse_with_specialist,
                 specialist,
                 clauses,

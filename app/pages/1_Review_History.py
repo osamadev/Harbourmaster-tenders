@@ -14,6 +14,7 @@ _root = Path(__file__).resolve().parents[2]
 if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
+from app.utils.auth import require_auth  # noqa: E402
 from app.utils.layout import init_page, render_app_sidebar  # noqa: E402
 from app.utils.render import (  # noqa: E402
     display_clauses,
@@ -48,6 +49,7 @@ def _summary_markdown(review: dict) -> str:
 
 
 init_page("Review History", icon="🗂️", subtitle="Browse, inspect, download, and manage saved contract reviews.")
+require_auth()
 reviews = list_reviews()
 
 

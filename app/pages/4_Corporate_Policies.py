@@ -9,6 +9,7 @@ _root = Path(__file__).resolve().parents[2]
 if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
+from app.utils.auth import require_auth  # noqa: E402
 from app.utils.layout import init_page, inject_theme_css, render_app_sidebar  # noqa: E402
 from harbourmaster.ingest import extract_text  # noqa: E402
 from harbourmaster.policies import (  # noqa: E402
@@ -25,6 +26,7 @@ init_page(
     icon="📚",
     subtitle="Define and maintain internal policy rules used by the compliance specialist.",
 )
+require_auth()
 
 def _refresh() -> None:
     st.rerun()
