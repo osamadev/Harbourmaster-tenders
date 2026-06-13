@@ -135,6 +135,57 @@ def inject_theme_css() -> None:
         }
         .hm-prog-meta { margin-top: 0.4rem; display: flex; gap: 0.4rem; flex-wrap: wrap; }
 
+        /* ---- Activity / execution timeline indicators ---- */
+        .hm-act-title { font-weight: 700; color: var(--hm-text); font-size: 0.95rem;
+            margin: 0.5rem 0 0.35rem 0; }
+        .hm-act { display: flex; flex-direction: column; }
+        .hm-act-row { display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.28rem 0; }
+        .hm-act-badge {
+            flex: 0 0 auto; width: 20px; height: 20px; border-radius: 50%; margin-top: 1px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.72rem; font-weight: 700; line-height: 1;
+            background: #FFFFFF; border: 2px solid var(--hm-border); color: #94A3B8;
+        }
+        .hm-act-body { flex: 1; min-width: 0; }
+        .hm-act-label { font-weight: 600; color: var(--hm-text); font-size: 0.9rem; }
+        .hm-act-detail { color: var(--hm-muted); font-size: 0.8rem; line-height: 1.25; }
+        .hm-act-done .hm-act-badge { background: var(--hm-ok-bg); border-color: #16A34A; color: var(--hm-ok); }
+        .hm-act-running .hm-act-badge {
+            background: #FFFFFF; border-color: var(--hm-teal); color: var(--hm-teal);
+            animation: hmPulse 1.4s infinite;
+        }
+        .hm-act-running .hm-act-label { color: var(--hm-teal); }
+        .hm-act-pending .hm-act-label { color: #94A3B8; }
+        .hm-act-pending .hm-act-detail { color: #CBD5E1; }
+        .hm-act-skipped .hm-act-badge { border-style: dashed; }
+        .hm-act-skipped .hm-act-label { color: #94A3B8; text-decoration: line-through; }
+        .hm-act-error .hm-act-badge { background: var(--hm-err-bg); border-color: #DC2626; color: var(--hm-err); }
+        .hm-act-error .hm-act-label { color: var(--hm-err); }
+        .hm-act-log { margin: 0.1rem 0 0 0; padding-left: 1.05rem; color: var(--hm-muted); font-size: 0.82rem; }
+        .hm-act-log li { margin: 0.12rem 0; }
+        /* Activity feed rows */
+        .hm-log { display: flex; flex-direction: column; }
+        .hm-log-row { display: flex; align-items: baseline; gap: 0.5rem; font-size: 0.82rem; padding: 0.12rem 0; }
+        .hm-log-ic { flex: 0 0 1rem; text-align: center; font-weight: 700; color: #94A3B8; }
+        .hm-log-text { color: var(--hm-text); }
+        .hm-log-started .hm-log-ic { color: var(--hm-teal); }
+        .hm-log-done .hm-log-ic { color: var(--hm-ok); }
+        .hm-log-error .hm-log-ic { color: var(--hm-err); }
+        .hm-log-revision .hm-log-ic { color: var(--hm-warn); }
+
+        /* ---- Redline (track-changes) for counter-clauses ---- */
+        .hm-red-doc {
+            background: #FFFFFF; border: 1px solid var(--hm-border); border-radius: 10px;
+            padding: 0.75rem 0.9rem; line-height: 1.6; color: var(--hm-text);
+            font-size: 0.9rem; white-space: pre-wrap; max-height: 360px; overflow-y: auto;
+        }
+        .hm-red-del { background: #FEE2E2; color: #991B1B; text-decoration: line-through;
+            border-radius: 3px; padding: 0 2px; }
+        .hm-red-ins { background: #DCFCE7; color: #166534; text-decoration: none;
+            border-radius: 3px; padding: 0 2px; }
+        .hm-red-legend { font-size: 0.78rem; color: var(--hm-muted); }
+        .hm-red-legend del, .hm-red-legend ins { margin-right: 0.4rem; }
+
         /* ---- Risk meter ---- */
         .hm-meter { display: flex; align-items: center; gap: 0.6rem; margin: 0.45rem 0 0.15rem 0; }
         .hm-meter-cap { font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
@@ -369,12 +420,17 @@ def render_phase_stepper(
     if current not in steps:
         current = "idle"
     idx = steps.index(current)
+    terminal = current == "complete"  # workflow finished — nothing is in progress
     parts: list[str] = []
     for i, step in enumerate(steps):
         if i < idx:
             cls, dot = "hm-step hm-step-done", "✓"
         elif i == idx:
-            cls, dot = "hm-step hm-step-active", str(i + 1)
+            # The final "Complete" step should read as done (✓), not pulse like an active step.
+            if terminal:
+                cls, dot = "hm-step hm-step-done", "✓"
+            else:
+                cls, dot = "hm-step hm-step-active", str(i + 1)
         else:
             cls, dot = "hm-step", str(i + 1)
         parts.append(

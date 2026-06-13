@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html as _html
 from contextlib import nullcontext
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -23,6 +24,50 @@ STATUS_ICON = {
 SPECIALIST_LABELS = {
     key: key.replace("_", " ").title() for key in SPECIALIST_KEYS
 }
+
+# Styled status badge content + row class for the activity/timeline indicators.
+_STATUS_BADGE = {"done": "✓", "running": "●", "error": "✕", "skipped": "—", "pending": ""}
+_STATUS_ROW_CLASS = {
+    "done": "hm-act-done",
+    "running": "hm-act-running",
+    "error": "hm-act-error",
+    "skipped": "hm-act-skipped",
+    "pending": "hm-act-pending",
+}
+
+
+def _activity_row(status: str, label: str, detail: str = "") -> str:
+    cls = _STATUS_ROW_CLASS.get(status, "hm-act-pending")
+    badge = _STATUS_BADGE.get(status, "")
+    body = f'<div class="hm-act-label">{label}</div>'
+    if detail:
+        body += f'<div class="hm-act-detail">{detail}</div>'
+    return (
+        f'<div class="hm-act-row {cls}"><div class="hm-act-badge">{badge}</div>'
+        f'<div class="hm-act-body">{body}</div></div>'
+    )
+
+
+def _activity_panel(title: str, rows: list[str]) -> str:
+    return f'<div class="hm-act-title">{title}</div><div class="hm-act">' + "".join(rows) + "</div>"
+
+
+def _log_kind(line: str) -> tuple[str, str]:
+    """Map an activity-log line to a (css-kind, icon) pair for colour-coded display."""
+    low = line.lower()
+    if low.startswith("started"):
+        return "started", "▶"
+    if low.startswith("completed"):
+        return "done", "✓"
+    if "block" in low:
+        return "error", "⛔"
+    if "error" in low:
+        return "error", "✕"
+    if "revision" in low:
+        return "revision", "↻"
+    if "awaiting" in low:
+        return "started", "⏸"
+    return "info", "•"
 
 FULL_WORKFLOW_STEPS: tuple[dict[str, str], ...] = (
     {"id": "guard", "label": "Guard evaluation", "description": "Inline ALLOW / HUMAN_REVIEW / DENY check"},
@@ -109,6 +154,8 @@ class WorkflowProgressTracker:
         return min(1.0, (done + running) / len(ids))
 
     def _log(self, message: str) -> None:
+        if self.activity_log and self.activity_log[-1] == message:
+            return  # collapse consecutive duplicates (e.g. guard completed twice)
         self.activity_log.append(message)
         self.activity_log = self.activity_log[-10:]
 
@@ -190,6 +237,10 @@ class WorkflowProgressTracker:
             findings = update.get("findings", {}).get("findings", [])
             high = sum(1 for f in findings if f.get("risk_level") == "high")
             self.metrics["high_risk_count"] = high
+            # Aggregation only runs once every specialist has produced findings, so reflect
+            # all specialists as done (a later revision reset would otherwise under-count).
+            for key in SPECIALIST_KEYS:
+                self.specialist_status[key] = "done"
             self.complete("aggregate", f"risk {float(risk or 0):.2f}")
         elif node_name == "verifier":
             pending = update.get("pending_revisions", {})
@@ -272,7 +323,9 @@ class WorkflowProgressTracker:
                 interrupts = chunk["__interrupt__"]
                 if interrupts:
                     payload = interrupts[0].value
-                    self.complete("human_review", "awaiting reviewer")
+                    # Advance the live step to the actual pause point so the panel reads
+                    # "Human review checkpoint" (not a stale earlier step).
+                    self.start("human_review", "awaiting reviewer")
                     return payload if isinstance(payload, dict) else None
             for node_name, update in chunk.items():
                 if node_name.startswith("__"):
@@ -329,28 +382,44 @@ class WorkflowProgressTracker:
         cols[4].metric("Revision", metrics.get("revision_round", 0))
 
         if self.mode == "full" and "specialists" in self._step_ids():
-            lines = []
-            for key in SPECIALIST_KEYS:
-                status = self.specialist_status.get(key, "pending")
-                icon = STATUS_ICON[status]
-                label = SPECIALIST_LABELS.get(key, key)
-                focus = SPECIALIST_DEFS[key]["focus"][:60]
-                lines.append(f"{icon} **{label}** — _{focus}_")
-            self._specialists_panel.markdown("**Specialist agents**\n\n" + "\n\n".join(lines))
+            rows = [
+                _activity_row(
+                    self.specialist_status.get(key, "pending"),
+                    SPECIALIST_LABELS.get(key, key),
+                    SPECIALIST_DEFS[key]["focus"][:70],
+                )
+                for key in SPECIALIST_KEYS
+            ]
+            self._specialists_panel.markdown(
+                _activity_panel("Specialist agents", rows), unsafe_allow_html=True
+            )
 
-        timeline_lines = []
-        for step in self.steps:
-            sid = step["id"]
-            status = self.statuses.get(sid, "pending")
-            icon = STATUS_ICON[status]
-            detail = self.details.get(sid, "")
-            suffix = f" — {detail}" if detail else ""
-            timeline_lines.append(f"{icon} **{step['label']}**{suffix}")
-        self._timeline.markdown("**Execution timeline**\n\n" + "\n\n".join(timeline_lines))
+        timeline_rows = [
+            _activity_row(
+                self.statuses.get(step["id"], "pending"),
+                step["label"],
+                self.details.get(step["id"], "") or step.get("description", ""),
+            )
+            for step in self.steps
+        ]
+        self._timeline.markdown(
+            _activity_panel("Execution timeline", timeline_rows), unsafe_allow_html=True
+        )
 
         if self.activity_log:
-            log_text = "\n".join(f"- {line}" for line in self.activity_log[-8:])
-            self._activity.markdown(f"**Activity**\n\n{log_text}")
+            log_rows = []
+            for line in reversed(self.activity_log[-8:]):  # newest first
+                kind, icon = _log_kind(line)
+                log_rows.append(
+                    f'<div class="hm-log-row hm-log-{kind}"><span class="hm-log-ic">{icon}</span>'
+                    f'<span class="hm-log-text">{_html.escape(line)}</span></div>'
+                )
+            self._activity.markdown(
+                '<div class="hm-act-title">Activity</div><div class="hm-log">'
+                + "".join(log_rows)
+                + "</div>",
+                unsafe_allow_html=True,
+            )
 
 
 def stream_graph_run(

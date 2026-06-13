@@ -165,7 +165,7 @@ if not review.get("blocked"):
     display_clauses(review.get("clauses", []))
     display_specialist_findings(review.get("specialist_findings", {}))
     display_verifier_notes(review.get("verifier_notes", []))
-    display_counter_clauses(review.get("counter_clauses", []))
+    display_counter_clauses(review.get("counter_clauses", []), review.get("clauses", []))
 
 reports = review.get("inspection_reports", [])
 if reports:

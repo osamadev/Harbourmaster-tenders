@@ -2,9 +2,31 @@
 
 from __future__ import annotations
 
+import difflib
+import html as _html
+import re
 from typing import Any
 
 import streamlit as st
+
+
+def _inline_redline(original: str, revised: str) -> str:
+    """Word-level track-changes HTML: deletions struck-through (red), insertions (green)."""
+    a = re.findall(r"\S+\s*", original or "")
+    b = re.findall(r"\S+\s*", revised or "")
+    parts: list[str] = []
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(a=a, b=b, autojunk=False).get_opcodes():
+        old = _html.escape("".join(a[i1:i2]))
+        new = _html.escape("".join(b[j1:j2]))
+        if tag == "equal":
+            parts.append(new)
+        elif tag == "delete":
+            parts.append(f'<del class="hm-red-del">{old}</del>')
+        elif tag == "insert":
+            parts.append(f'<ins class="hm-red-ins">{new}</ins>')
+        elif tag == "replace":
+            parts.append(f'<del class="hm-red-del">{old}</del><ins class="hm-red-ins">{new}</ins>')
+    return "".join(parts)
 
 
 def risk_label(level: str) -> str:
@@ -194,19 +216,41 @@ def display_verifier_notes(verifier_notes: list[dict[str, Any]]) -> None:
         st.markdown(f"- `{action}` — **{specialist} / {clause_id}**: {reason}")
 
 
-def display_counter_clauses(counter_clauses: list[dict[str, Any]]) -> None:
+def display_counter_clauses(
+    counter_clauses: list[dict[str, Any]],
+    clauses: list[dict[str, Any]] | None = None,
+) -> None:
     if not counter_clauses:
         st.info("No counter-clause proposals generated.")
         return
 
+    clause_map = {str(c.get("id", "")): c for c in (clauses or []) if isinstance(c, dict)}
     st.markdown("### Proposed Counter-Clauses")
+    st.markdown(
+        '<span class="hm-red-legend"><del class="hm-red-del">removed</del> '
+        '<ins class="hm-red-ins">added</ins></span>',
+        unsafe_allow_html=True,
+    )
     for row in counter_clauses:
-        clause_id = row.get("clause_id", "N/A")
+        clause_id = str(row.get("clause_id", "N/A"))
         redline = row.get("proposed_redline", "")
         justification = row.get("justification", "")
-        with st.expander(f"Counter-clause for {clause_id}", expanded=False):
-            st.markdown("**Proposed redline**")
-            st.write(redline or "(none)")
+        source = clause_map.get(clause_id, {})
+        original = str(source.get("text", ""))
+        title = str(source.get("title", "")).strip()
+        header = f"Counter-clause for {clause_id}" + (f" — {title}" if title else "")
+        with st.expander(header, expanded=False):
+            if original and redline:
+                st.markdown("**Redline — original → proposed**")
+                st.markdown(
+                    f'<div class="hm-red-doc">{_inline_redline(original, redline)}</div>',
+                    unsafe_allow_html=True,
+                )
+                with st.expander("Proposed text only", expanded=False):
+                    st.write(redline)
+            else:
+                st.markdown("**Proposed redline**")
+                st.write(redline or "(none)")
             st.markdown("**Justification**")
             st.write(justification or "(none)")
 

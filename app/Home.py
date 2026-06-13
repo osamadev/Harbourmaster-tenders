@@ -407,7 +407,7 @@ elif st.session_state.phase == "complete":
         display_clauses(result.get("clauses", []))
         display_specialist_findings(result.get("specialist_findings", {}))
         display_verifier_notes(result.get("verifier_notes", []))
-        display_counter_clauses(result.get("counter_clauses", []))
+        display_counter_clauses(result.get("counter_clauses", []), result.get("clauses", []))
 
     reports = result.get("inspection_reports", [])
     if reports:
