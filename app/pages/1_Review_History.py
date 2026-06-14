@@ -16,16 +16,7 @@ if str(_root) not in sys.path:
 
 from app.utils.auth import require_auth  # noqa: E402
 from app.utils.layout import init_page, render_app_sidebar  # noqa: E402
-from app.utils.render import (  # noqa: E402
-    display_clauses,
-    display_compliance_findings,
-    display_counter_clauses,
-    display_findings,
-    display_inspection_reports,
-    display_specialist_findings,
-    display_verifier_notes,
-    render_tender_document,
-)
+from app.utils.review_view import render_review_results  # noqa: E402
 from harbourmaster.reviews import delete_review, list_reviews, load_review  # noqa: E402
 
 
@@ -141,43 +132,7 @@ st.divider()
 st.markdown(f"## {review.get('title', 'Untitled contract review')}")
 st.caption(f"Review ID: `{review.get('id', '')}` • Created: `{review.get('created_at', '')}`")
 
-m1, m2, m3, m4 = st.columns(4)
-if review.get("blocked"):
-    decision_label = "Blocked"
-else:
-    decision_label = str(review.get("review_decision", {}).get("decision", "auto-approved")).title()
-m1.metric("Overall Risk", f"{float(review.get('overall_risk', 0.0)):.2f}")
-m2.metric("Decision", decision_label)
-m3.metric("Guard Blocked", "Yes" if review.get("blocked") else "No")
-m4.metric("Inspection Reports", len(review.get("inspection_reports", [])))
-
-if review.get("blocked"):
-    st.error(f"⛔ Blocked by the governance guard — {review.get('block_reason', 'Guard verdict: DENY')}")
-
-st.markdown("### Draft Summary")
-st.markdown(review.get("draft_summary", "(no summary produced)"))
-
-if not review.get("blocked"):
-    st.markdown("### Verified Findings")
-    display_findings(review.get("findings", {}))
-    st.markdown("### Compliance Findings")
-    display_compliance_findings(review.get("findings", {}))
-    display_clauses(review.get("clauses", []))
-    display_specialist_findings(review.get("specialist_findings", {}))
-    display_verifier_notes(review.get("verifier_notes", []))
-    display_counter_clauses(review.get("counter_clauses", []), review.get("clauses", []))
-
-reports = review.get("inspection_reports", [])
-if reports:
-    st.markdown("### Governance Inspection Reports")
-    display_inspection_reports(reports)
-
-st.markdown("### Tender Document")
-render_tender_document(
-    review.get("tender_text", ""),
-    title="Original tender document",
-    truncated=bool(review.get("tender_text_truncated")),
-)
+render_review_results(review, tender_text=review.get("tender_text", ""), mode="history")
 
 st.divider()
 action_col1, action_col2, action_col3 = st.columns(3)

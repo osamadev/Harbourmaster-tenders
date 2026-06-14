@@ -204,6 +204,32 @@ def inject_theme_css() -> None:
         }
         .hm-card-title { font-weight: 700; color: var(--hm-text); font-size: 0.95rem; margin-bottom: 0.5rem; }
 
+        /* ---- Finding cards (unified findings view) ---- */
+        .hm-finding {
+            border-top: 1px solid var(--hm-border); padding: 0.55rem 0 0.1rem 0; margin-top: 0.3rem;
+        }
+        .hm-finding:first-child { border-top: none; }
+        .hm-finding-head {
+            display: flex; justify-content: space-between; align-items: center;
+            gap: 0.6rem; flex-wrap: wrap;
+        }
+        .hm-finding-clause { font-weight: 700; color: var(--hm-text); font-size: 0.92rem; }
+        .hm-finding-head .hm-chip-row { margin: 0; }
+
+        /* ---- Compact metric strip (review summary band) ---- */
+        .hm-metric-strip {
+            display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.5rem 0 0.2rem 0;
+        }
+        .hm-metric-pill {
+            background: var(--hm-surface); border: 1px solid var(--hm-border);
+            border-radius: 10px; padding: 0.4rem 0.7rem; min-width: 92px;
+            box-shadow: 0 1px 2px rgba(15,39,66,.04);
+        }
+        .hm-metric-pill .v { font-weight: 700; color: var(--hm-text); font-size: 1.05rem;
+            font-variant-numeric: tabular-nums; line-height: 1.1; }
+        .hm-metric-pill .k { color: var(--hm-muted); text-transform: uppercase;
+            letter-spacing: 0.04em; font-size: 0.66rem; font-weight: 700; margin-top: 0.1rem; }
+
         /* ---- Metric tiles -> cards ---- */
         div[data-testid="stMetric"] {
             background: var(--hm-surface); border: 1px solid var(--hm-border);

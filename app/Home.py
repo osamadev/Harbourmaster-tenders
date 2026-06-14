@@ -19,16 +19,7 @@ from app.utils.layout import (  # noqa: E402
     render_summary_card,
 )
 from app.utils.auth import require_auth  # noqa: E402
-from app.utils.render import (  # noqa: E402
-    display_clauses,
-    display_compliance_findings,
-    display_counter_clauses,
-    display_findings,
-    display_inspection_reports,
-    display_specialist_findings,
-    display_verifier_notes,
-    render_tender_document,
-)
+from app.utils.review_view import render_review_results  # noqa: E402
 from app.utils.workflow_progress import (  # noqa: E402
     WorkflowProgressTracker,
     stream_graph_run,
@@ -310,38 +301,32 @@ elif st.session_state.phase == "awaiting_review":
         st.error(f"Governance guard blocked this request: {payload.get('block_reason', 'unknown')}")
 
     st.divider()
-    left, right = st.columns([3, 2])
+    render_review_results(payload, tender_text=st.session_state.tender_text, mode="review")
 
-    with left:
-        st.markdown("### Aggregated Findings")
-        display_findings(payload.get("findings", {}))
-        st.markdown("### Compliance Findings")
-        display_compliance_findings(payload.get("findings", {}))
-        display_clauses(payload.get("clauses", []))
-        display_specialist_findings(payload.get("specialist_findings", {}))
-        display_verifier_notes(payload.get("verifier_notes", []))
-        st.markdown("### Tender Document")
-        render_tender_document(st.session_state.tender_text, title="Original tender", expanded=False)
-
-    with right:
+    st.divider()
+    with st.container(border=True):
         st.markdown("### Reviewer Decision")
         decision_choice = st.radio(
             "Decision",
             ["approve", "reject"],
             format_func=lambda x: "Approve — proceed to draft" if x == "approve" else "Reject — stop workflow",
             index=0,
+            horizontal=True,
         )
-        reviewer_name = st.text_input("Reviewer name", value="reviewer")
-        reviewer_note = st.text_area(
-            "Notes for the drafter",
-            placeholder="e.g. Refer unlimited indemnity to legal before signing.",
-            height=120,
-        )
-        clause_notes = st.text_area(
-            "Per-clause notes for negotiator (optional)",
-            placeholder="e.g. C3: ask for capped LDs; C5: retain background IP ownership.",
-            height=100,
-        )
+        dcol1, dcol2 = st.columns(2)
+        with dcol1:
+            reviewer_name = st.text_input("Reviewer name", value="reviewer")
+            reviewer_note = st.text_area(
+                "Notes for the drafter",
+                placeholder="e.g. Refer unlimited indemnity to legal before signing.",
+                height=120,
+            )
+        with dcol2:
+            clause_notes = st.text_area(
+                "Per-clause notes for negotiator (optional)",
+                placeholder="e.g. C3: ask for capped LDs; C5: retain background IP ownership.",
+                height=178,
+            )
 
         if st.button("Submit Decision", type="primary"):
             decision = {
@@ -373,49 +358,7 @@ elif st.session_state.phase == "complete":
         st.success(f"Review saved as `{st.session_state.review_id}` — view it in Review History.")
         _render_history_link()
 
-    st.markdown("### Draft Summary")
-    summary = result.get("draft_summary", "(no summary produced)")
-    st.markdown(summary)
-    st.divider()
-
-    col1, col2, col3, col4, col5 = st.columns(5)
-    with col1:
-        st.metric("Overall Risk", f"{result.get('overall_risk', 0.0):.2f}")
-    with col2:
-        st.metric("Guard Blocked", "Yes" if result.get("blocked") else "No")
-    with col3:
-        reports = result.get("inspection_reports", [])
-        st.metric("Inspection Reports", len(reports))
-    with col4:
-        if is_blocked:
-            decision_label = "Blocked"
-        else:
-            decision = result.get("review_decision", {})
-            decision_label = decision.get("decision", "auto-approved").title()
-        st.metric("Decision", decision_label)
-    with col5:
-        st.metric("Policies Considered", len(result.get("corporate_policies", [])))
-
-    if not is_blocked:
-        findings = result.get("findings", {})
-        if findings:
-            st.markdown("### Verified Findings")
-            display_findings(findings)
-            st.markdown("### Compliance Findings")
-            display_compliance_findings(findings)
-
-        display_clauses(result.get("clauses", []))
-        display_specialist_findings(result.get("specialist_findings", {}))
-        display_verifier_notes(result.get("verifier_notes", []))
-        display_counter_clauses(result.get("counter_clauses", []), result.get("clauses", []))
-
-    reports = result.get("inspection_reports", [])
-    if reports:
-        st.markdown("### Governance Inspection Reports")
-        display_inspection_reports(reports)
-
-    st.markdown("### Tender Document")
-    render_tender_document(st.session_state.tender_text, title="Reviewed tender", expanded=False)
+    render_review_results(result, tender_text=st.session_state.tender_text, mode="complete")
 
     st.divider()
     if st.button("Start New Review"):

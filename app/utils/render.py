@@ -181,6 +181,99 @@ def display_compliance_findings(findings: dict[str, Any]) -> None:
             st.caption(f'Policy reference: "{policy_reference}"')
 
 
+_RISK_ORDER = {"high": 0, "medium": 1, "low": 2}
+_SPECIALIST_LABELS = {
+    "legal": "Legal",
+    "financial": "Financial",
+    "delivery": "Delivery",
+    "ip_data": "IP & Data",
+    "compliance": "Compliance",
+}
+
+
+def _finding_card(finding: dict[str, Any], *, show_specialist: bool = True) -> None:
+    """Render a single finding as a chip-decorated card."""
+    level = str(finding.get("risk_level", "unknown")).lower()
+    clause = finding.get("clause", "Unknown clause")
+    clause_id = finding.get("clause_id", "N/A")
+    specialist = str(finding.get("specialist", "general"))
+    rationale = str(finding.get("rationale", "")).strip()
+    evidence = str(finding.get("evidence_quote", "")).strip()
+    policy_id = str(finding.get("policy_id", "")).strip()
+    policy_reference = str(finding.get("policy_reference", "")).strip()
+
+    chips = [risk_chip(level)]
+    if show_specialist:
+        spec_label = _SPECIALIST_LABELS.get(specialist, specialist)
+        chips.append(f'<span class="hm-chip hm-chip-neutral">{_html.escape(spec_label)}</span>')
+    if policy_id:
+        chips.append(f'<span class="hm-chip hm-chip-neutral">📘 {_html.escape(policy_id)}</span>')
+
+    st.markdown(
+        f'<div class="hm-finding">'
+        f'<div class="hm-finding-head">'
+        f'<span class="hm-finding-clause">{_html.escape(str(clause_id))} · {_html.escape(str(clause))}</span>'
+        f'<span class="hm-chip-row">{"".join(chips)}</span>'
+        f"</div></div>",
+        unsafe_allow_html=True,
+    )
+    if rationale:
+        st.write(rationale)
+    if evidence:
+        st.caption(f'Evidence: "{evidence}"')
+    if policy_reference:
+        st.caption(f'Policy reference: "{policy_reference}"')
+
+
+def render_findings(
+    findings: dict[str, Any],
+    specialist_findings: dict[str, list[dict[str, Any]]] | None = None,
+    *,
+    group_by: str = "Risk",
+) -> None:
+    """Unified findings view grouped by Risk, Specialist, or Clause.
+
+    Replaces the old display_findings / display_compliance_findings /
+    display_specialist_findings trio — every finding is shown once, with risk +
+    specialist + policy chips. Compliance policy info renders inline.
+    """
+    items = list(findings.get("findings", []) if isinstance(findings, dict) else [])
+    # Fall back to specialist_findings when the merged list is empty (e.g. HITL payload).
+    if not items and specialist_findings:
+        for spec, rows in specialist_findings.items():
+            for row in rows or []:
+                merged = dict(row)
+                merged.setdefault("specialist", spec)
+                items.append(merged)
+    if not items:
+        st.info("No findings reported.")
+        return
+
+    if group_by == "Specialist":
+        groups: dict[str, list[dict[str, Any]]] = {}
+        for f in items:
+            groups.setdefault(str(f.get("specialist", "general")), []).append(f)
+        for spec in sorted(groups):
+            label = _SPECIALIST_LABELS.get(spec, spec)
+            with st.expander(f"{label} ({len(groups[spec])})", expanded=True):
+                for f in groups[spec]:
+                    _finding_card(f, show_specialist=False)
+    elif group_by == "Clause":
+        groups = {}
+        for f in items:
+            groups.setdefault(str(f.get("clause_id", "N/A")), []).append(f)
+        for cid in sorted(groups):
+            clause_title = str(groups[cid][0].get("clause", "")).strip()
+            header = f"{cid} — {clause_title}" if clause_title else cid
+            with st.expander(f"{header} ({len(groups[cid])})", expanded=True):
+                for f in groups[cid]:
+                    _finding_card(f)
+    else:  # Risk (default)
+        ordered = sorted(items, key=lambda f: _RISK_ORDER.get(str(f.get("risk_level", "")).lower(), 3))
+        for f in ordered:
+            _finding_card(f)
+
+
 def display_specialist_findings(specialist_findings: dict[str, list[dict[str, Any]]]) -> None:
     if not specialist_findings:
         st.info("No specialist outputs available.")
@@ -261,7 +354,8 @@ def display_inspection_reports(reports: list[dict[str, Any]]) -> None:
         return
     for i, report in enumerate(reports, 1):
         verdict = report.get("verdict", "UNKNOWN")
-        with st.expander(f"Inspection Report #{i} — Verdict: {verdict}"):
+        agent_id = report.get("agent_id", "N/A")
+        with st.expander(f"#{i} · {agent_id} — {verdict}", expanded=False):
             st.markdown(status_chip(verdict), unsafe_allow_html=True)
             col1, col2 = st.columns(2)
             with col1:
@@ -275,4 +369,5 @@ def display_inspection_reports(reports: list[dict[str, Any]]) -> None:
                 st.markdown("**Agent Context**")
                 st.write(f"Agent: {report.get('agent_id', 'N/A')}")
                 st.write(f"Intent: {report.get('declared_intent', 'N/A')}")
-            st.json(report)
+            if st.toggle("Raw report", value=False, key=f"insp-raw-{i}-{abs(hash(str(agent_id)))}"):
+                st.json(report)

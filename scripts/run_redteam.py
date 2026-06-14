@@ -14,7 +14,7 @@ import yaml
 
 from harbourmaster import config
 from harbourmaster.guard import evaluate_content
-from harbourmaster.telemetry import init_telemetry
+from harbourmaster.telemetry import agent_span, init_telemetry
 
 CASES_FILE = Path(__file__).resolve().parents[1] / "configs" / "redteam_cases.yaml"
 
@@ -31,7 +31,21 @@ def run_case(case: dict) -> dict:
     """Run a single test case and return the result."""
     prompt = case["prompt"]
     expected = case["expected_action"]
-    guard = evaluate_content(prompt, context="redteam_prompt")
+    # Per-case ambient span so the guard's LLM + inspection spans nest under it
+    # (and under the suite root) instead of landing as flat roots in Phoenix.
+    span_id = None
+    with agent_span(
+        f"redteam:{case['name']}",
+        kind="GUARDRAIL",
+        attributes={
+            "redteam.category": case.get("category", ""),
+            "redteam.expected": expected,
+        },
+    ) as span:
+        from harbourmaster.phoenix_annotations import span_id_hex
+
+        span_id = span_id_hex(span)
+        guard = evaluate_content(prompt, context="redteam_prompt")
     actual = guard.verdict
 
     # Determine pass/fail. For expected DENY, accept DENY or QUARANTINE as a
@@ -55,6 +69,7 @@ def run_case(case: dict) -> dict:
         "ingress_risk": guard.risk_score,
         "blocked": guard.blocked,
         "report": guard.to_inspection(),
+        "span_id": span_id,
     }
 
 
@@ -62,9 +77,15 @@ def run_all(path: Path | None = None) -> list[dict]:
     """Run all test cases and return results."""
     cases = load_cases(path)
     results = []
-    for case in cases:
-        result = run_case(case)
-        results.append(result)
+    # Suite root span: each redteam:<case> span (and its guard spans) nests under
+    # this, giving Phoenix one red-team trace tree per suite run.
+    with agent_span(
+        "harbourmaster.redteam_suite",
+        kind="CHAIN",
+        attributes={"redteam.case_count": len(cases)},
+    ):
+        for case in cases:
+            results.append(run_case(case))
     return results
 
 
@@ -191,6 +212,24 @@ def main() -> None:
     init_telemetry()
     results = run_all()
     print_scorecard(results)
+    # Attach a guard_correct pass/fail annotation to each case span (best-effort).
+    try:
+        from harbourmaster.phoenix_annotations import annotate_redteam
+
+        annotate_redteam(
+            [
+                {
+                    "span_id": r.get("span_id"),
+                    "name": r.get("name", ""),
+                    "passed": r.get("passed"),
+                    "expected": r.get("expected", ""),
+                    "actual": r.get("actual", ""),
+                }
+                for r in results
+            ]
+        )
+    except Exception:  # noqa: BLE001
+        pass
     print(f"Phoenix: {sync_with_phoenix(results)}")
 
 

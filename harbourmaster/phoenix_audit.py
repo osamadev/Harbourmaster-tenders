@@ -239,8 +239,12 @@ def _build_dataframe() -> pd.DataFrame:
             or attrs.get("verdict")
             or _status_to_action(entry.get("status_code") or entry.get("status"))
         )
+        # Prefer the explicit governance `direction` (guard/model_call/workflow_risk)
+        # over the OpenInference span kind: inspection spans now carry a CHAIN kind
+        # for clean rendering, but their `direction` is what drives classification.
+        # Raw ChatCompletion spans have no `direction`, so they still resolve to LLM.
         direction = str(
-            attrs.get("openinference.span.kind") or attrs.get("direction") or "model_call"
+            attrs.get("direction") or attrs.get("openinference.span.kind") or "model_call"
         )
         agent_id = attrs.get("agent_id") or attrs.get("openinference.user_id") or entry.get("name", "")
 

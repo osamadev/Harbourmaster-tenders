@@ -443,7 +443,30 @@ def stream_graph_run(
     except Exception:  # noqa: BLE001
         session_ctx = nullcontext()
 
-    with session_ctx:
+    # Root span for the whole run: node spans (and their LLM/inspection children)
+    # nest under this, so Phoenix shows one review trace tree instead of a flat
+    # pile of root spans. Carries input.value (tender text) / output.value (final
+    # summary) + status so Phoenix's trace-list columns are populated rather than
+    # showing "--". A guard DENY / HITL pause just ends this span early; the resume
+    # call opens a fresh root sharing the same session_id.
+    def set_span_output(*_a, **_k):  # fallback if telemetry import fails
+        return None
+
+    try:
+        from harbourmaster.telemetry import agent_span, set_span_output
+
+        root_ctx = agent_span(
+            "harbourmaster.tender_review",
+            kind="CHAIN",
+            attributes={"session.id": thread_id},
+            input_value=_root_input_text(inputs),
+        )
+    except Exception:  # noqa: BLE001
+        root_ctx = nullcontext()
+
+    final_state: dict[str, Any] | None = None
+    root_span_id: str | None = None
+    with session_ctx, root_ctx as root_span:
         for mode, chunk in graph.stream(inputs, run_config, stream_mode=["updates", "custom"]):
             payload = tracker.handle_stream_chunk(mode, chunk)
             if payload is not None:
@@ -452,8 +475,76 @@ def stream_graph_run(
             if on_tick is not None:
                 on_tick(tracker.sidebar_snapshot())
 
+        # Capture the root span_id while the span is still live (for annotations).
+        try:
+            from harbourmaster.phoenix_annotations import span_id_hex
+
+            root_span_id = span_id_hex(root_span)
+        except Exception:  # noqa: BLE001
+            root_span_id = None
+
+        # Record the run's output on the root span before it closes.
+        if interrupt_payload is not None:
+            set_span_output(root_span, "Paused — awaiting human review")
+        else:
+            snapshot = graph.get_state(run_config)
+            final_state = dict(snapshot.values or {})
+            set_span_output(
+                root_span, final_state.get("draft_summary") or "Review completed"
+            )
+
+    _submit_review_annotations(graph, run_config, root_span_id, final_state, interrupt_payload)
+
     if interrupt_payload is not None:
         return None, interrupt_payload
 
-    snapshot = graph.get_state(run_config)
-    return dict(snapshot.values or {}), None
+    return final_state, None
+
+
+def _submit_review_annotations(
+    graph: Any,
+    run_config: dict[str, Any],
+    root_span_id: str | None,
+    final_state: dict[str, Any] | None,
+    interrupt_payload: dict[str, Any] | None,
+) -> None:
+    """Fire automated governance annotations onto the review's root span (best-effort)."""
+    if not root_span_id:
+        return
+    try:
+        from harbourmaster import config
+        from harbourmaster.phoenix_annotations import submit_review_async
+
+        state = final_state
+        if state is None:  # interrupt branch — read the paused state for verdict/risk
+            try:
+                state = dict(graph.get_state(run_config).values or {})
+            except Exception:  # noqa: BLE001
+                state = {}
+
+        if state.get("blocked"):
+            decision = "blocked"
+        elif interrupt_payload is not None:
+            decision = "awaiting_review"
+        elif state.get("review_decision"):
+            decision = str(state["review_decision"].get("decision", "unknown"))
+        else:
+            decision = "auto-approved"
+
+        submit_review_async(
+            root_span_id,
+            guard_verdict=str(state.get("guard_verdict", "UNKNOWN")),
+            overall_risk=state.get("overall_risk", 0.0),
+            threshold=config.REVIEW_RISK_THRESHOLD,
+            decision=decision,
+            reason=str(state.get("block_reason", "")),
+        )
+    except Exception:  # noqa: BLE001
+        return
+
+
+def _root_input_text(inputs: Any) -> str:
+    """Best-effort input text for the review root span (tender text or resume note)."""
+    if isinstance(inputs, dict):
+        return str(inputs.get("tender_text", ""))
+    return "Resume after human review"

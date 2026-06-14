@@ -259,6 +259,12 @@ def resolve_settings(runtime_override: dict[str, Any] | None = None) -> Resolved
         api_base = f"http://localhost:{phoenix_port}"
 
     collector = str(raw.get("PHOENIX_COLLECTOR_ENDPOINT") or "").strip() or f"{api_base}/v1/traces"
+    # OTLP/HTTP span ingest must POST to the `/v1/traces` path. A bare base/space
+    # URL (e.g. https://app.phoenix.arize.com/s/<space>) yields 405 Method Not
+    # Allowed on export, so normalise it unless a custom OTLP path is given.
+    _coll = collector.rstrip("/")
+    if _coll and not _coll.endswith("/v1/traces"):
+        collector = f"{_coll}/v1/traces"
     console_url = _resolve_phoenix_console_url(api_base, phoenix_port, raw)
     phoenix_key = usable_secret(raw.get("PHOENIX_API_KEY"))
     phoenix_headers: dict[str, str] = {}

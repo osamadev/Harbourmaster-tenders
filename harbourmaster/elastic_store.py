@@ -25,6 +25,14 @@ def client():
     if not enabled():
         raise RuntimeError("Elastic integration is disabled")
 
+    # Suppress elasticsearch-py's native OTel spans (cluster.health/index/
+    # indices.exists/search) so they don't clutter Phoenix. Read by
+    # elasticsearch/_otel at construction time; setdefault keeps any operator
+    # override. Belt-and-suspenders for paths that don't import telemetry.
+    import os
+
+    os.environ.setdefault("OTEL_PYTHON_INSTRUMENTATION_ELASTICSEARCH_ENABLED", "false")
+
     from elasticsearch import Elasticsearch
 
     kwargs: dict[str, Any] = {"request_timeout": 10}

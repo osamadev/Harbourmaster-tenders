@@ -1,6 +1,7 @@
 """The Harbourmaster advanced multi-agent tender-review graph."""
 
 import contextvars
+import functools
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from langgraph.checkpoint.memory import MemorySaver
@@ -20,7 +21,7 @@ from harbourmaster.agents import (
 from harbourmaster.elastic_store import index_review_artifact, retrieval_context_for_clauses
 from harbourmaster.guard import evaluate_content
 from harbourmaster.state import ReviewState
-from harbourmaster.telemetry import record_inspection_span
+from harbourmaster.telemetry import agent_span, record_inspection_span, set_span_output
 
 
 def _emit(event: dict) -> None:
@@ -31,6 +32,28 @@ def _emit(event: dict) -> None:
         return
 
 
+def _node(name: str, kind: str = "CHAIN"):
+    """Wrap a node so its LLM + inspection spans nest under one ambient node span.
+
+    The raw Gemini calls (OpenAI SDK) and ``record_inspection_span`` spans inside
+    the node attach to this span via OTel context, giving Phoenix a real tree
+    (review root → node → model call) instead of a flat set of root spans.
+    """
+
+    def decorator(fn):
+        @functools.wraps(fn)
+        def wrapper(state: ReviewState) -> dict:
+            with agent_span(f"node:{name}", kind=kind, attributes={"graph.node": name}) as span:
+                result = fn(state)
+                set_span_output(span, result)
+                return result
+
+        return wrapper
+
+    return decorator
+
+
+@_node("guard", kind="GUARDRAIL")
 def guard_node(state: ReviewState) -> dict:
     """Inline security guard — runs first, before any other LLM work.
 
@@ -62,6 +85,7 @@ def route_after_guard(state: ReviewState) -> str:
     return "segment"
 
 
+@_node("blocked", kind="GUARDRAIL")
 def blocked_node(state: ReviewState) -> dict:
     """Terminal node for a guard-denied tender — records the block, no LLM calls."""
     reason = state.get("block_reason") or "Guard verdict: DENY"
@@ -82,6 +106,7 @@ def blocked_node(state: ReviewState) -> dict:
     }
 
 
+@_node("segment")
 def segment_node(state: ReviewState) -> dict:
     """Segment the (guard-cleared) tender into stable clauses and retrieve context."""
     clauses, resp = segment_tender_clauses(state["tender_text"])
@@ -96,6 +121,7 @@ def segment_node(state: ReviewState) -> dict:
     }
 
 
+@_node("specialists")
 def specialists_node(state: ReviewState) -> dict:
     """Run specialist analysts (full run or revision pass)."""
     clauses = state.get("clauses", [])
@@ -124,7 +150,7 @@ def specialists_node(state: ReviewState) -> dict:
         futures = {
             executor.submit(
                 contextvars.copy_context().run,
-                analyse_with_specialist,
+                _run_specialist,
                 specialist,
                 clauses,
                 pending.get(specialist),
@@ -159,6 +185,26 @@ def specialists_node(state: ReviewState) -> dict:
     }
 
 
+def _run_specialist(specialist: str, *args):
+    """Worker entry point: wrap each analyst call in its own ambient span.
+
+    Runs inside a copied context (the ``node:specialists`` span is current), so
+    this ``agent:<specialist>`` span nests under it and the analyst's Gemini call
+    nests under this — giving a per-analyst subtree in Phoenix.
+    """
+    clauses = args[0] if args else []
+    with agent_span(
+        f"agent:{specialist}",
+        kind="AGENT",
+        attributes={"agent.specialist": specialist},
+        input_value=clauses,
+    ) as span:
+        findings, resp = analyse_with_specialist(specialist, *args)
+        set_span_output(span, findings)
+        return findings, resp
+
+
+@_node("aggregate")
 def aggregate_node(state: ReviewState) -> dict:
     """Deterministically merge specialist outputs and compute overall risk."""
     specialist_findings = state.get("specialist_findings", {})
@@ -231,6 +277,7 @@ def aggregate_node(state: ReviewState) -> dict:
     }
 
 
+@_node("verifier", kind="EVALUATOR")
 def verifier_node(state: ReviewState) -> dict:
     """Verify merged findings; request revisions when needed."""
     clauses = state.get("clauses", [])
@@ -290,6 +337,7 @@ def route_after_verifier(state: ReviewState) -> str:
     return "governance"
 
 
+@_node("revision")
 def revision_node(state: ReviewState) -> dict:
     """Increment revision round before re-running specialists."""
     round_num = state.get("revision_round", 0) + 1
@@ -298,6 +346,7 @@ def revision_node(state: ReviewState) -> dict:
     return {"revision_round": round_num}
 
 
+@_node("governance")
 def governance_node(state: ReviewState) -> dict:
     """Pass-through node used for governance routing."""
     if state.get("blocked"):
@@ -345,6 +394,7 @@ def human_review_node(state: ReviewState) -> dict:
     return {"review_decision": decision}
 
 
+@_node("negotiator")
 def negotiator_node(state: ReviewState) -> dict:
     """Draft counter-clauses for high-risk findings."""
     decision = state.get("review_decision") or {}
@@ -364,6 +414,7 @@ def negotiator_node(state: ReviewState) -> dict:
     return {"counter_clauses": counter_clauses, "inspection_reports": reports}
 
 
+@_node("draft")
 def draft_node(state: ReviewState) -> dict:
     """Produce reviewer-facing summary (or record rejection)."""
     decision = state.get("review_decision") or {}
