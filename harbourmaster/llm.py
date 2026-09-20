@@ -4,9 +4,10 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-from openai import APIStatusError, OpenAI
+from openai import APIStatusError
 
 from harbourmaster import config
+from harbourmaster.runtime_keys import client_for_key, resolve_gemini_key
 from harbourmaster.telemetry import record_inspection_span
 
 
@@ -54,16 +55,32 @@ class GovernedLLM:
         self.declared_intent = declared_intent
         self.model = model
         self.temperature = temperature
-        self._client = OpenAI(
-            base_url=config.GEMINI_BASE_URL,
-            api_key=config.GEMINI_API_KEY,
-        )
+        self.base_url = config.GEMINI_BASE_URL
 
     def complete(self, messages: list[dict], **kwargs: Any) -> GovernedResponse:
-        """Send a chat completion and return output + inspection metadata."""
+        """Send a chat completion and return output + inspection metadata.
+
+        The API key is resolved per call so guest sessions use their own key while
+        registered/env sessions use the server key (see ``harbourmaster.runtime_keys``).
+        """
+
+        api_key = resolve_gemini_key()
+        if not api_key:
+            report = {
+                "verdict": "UNKNOWN",
+                "agent_id": self.agent_id,
+                "declared_intent": self.declared_intent,
+                "error": "No Gemini API key for this session",
+            }
+            return GovernedResponse(
+                text="No Gemini API key configured for this session.",
+                inspection=report,
+                raw={},
+            )
+        client = client_for_key(self.base_url, api_key)
 
         try:
-            raw = self._client.chat.completions.with_raw_response.create(
+            raw = client.chat.completions.with_raw_response.create(
                 model=self.model,
                 messages=messages,
                 temperature=kwargs.pop("temperature", self.temperature),

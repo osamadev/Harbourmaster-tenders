@@ -92,7 +92,9 @@ def get_review_detail(review_id: str) -> str:
 
 @tool
 def search_procurement_memory(query: str, doc_types: str = "") -> str:
-    """Search Elastic procurement memory for policies, clauses, precedents, and red-team cases."""
+    """Semantic search over indexed procurement text: policy passages, tender clauses, and
+    precedent counter-clauses. Use for clause/policy/precedent lookups — NOT for red-team
+    experiments or scorecard results (use latest_redteam_experiment for those)."""
     if not elastic_enabled():
         return json.dumps(
             {
@@ -132,11 +134,14 @@ def list_active_policies() -> str:
 
 
 def native_tools() -> list:
-    """Return all native LangChain tools."""
+    """Return all native LangChain tools (local data + advanced telemetry analytics)."""
+    from harbourmaster.copilot.telemetry_tools import telemetry_tools
+
     return [
         summarize_guard_telemetry,
         list_recent_reviews,
         get_review_detail,
         search_procurement_memory,
         list_active_policies,
+        *telemetry_tools(),
     ]

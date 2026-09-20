@@ -12,6 +12,7 @@ if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
 from app.utils.audit import load_dataframe  # noqa: E402
+from app.utils.auth import require_auth  # noqa: E402
 from app.utils.layout import init_page, render_app_sidebar  # noqa: E402
 
 init_page(
@@ -19,6 +20,7 @@ init_page(
     icon="📊",
     subtitle="Phoenix traces + span attributes — real-time governance visibility",
 )
+require_auth()
 df = load_dataframe()
 
 if df.empty:
@@ -94,6 +96,12 @@ guard_denied_count = len(filtered[is_guard & denied_mask])
 system_tool_denied_count = len(filtered[denied_mask & ~is_guard])
 
 st.markdown("### Overview")
+from harbourmaster.phoenix_audit import last_source  # noqa: E402
+
+_src = last_source()
+_src_label = {"mcp": "Phoenix MCP", "rest": "REST (MCP fallback)"}.get(_src, _src)
+st.caption(f"Telemetry source: **{_src_label}**")
+
 total = len(filtered)
 blocked = len(filtered[filtered["action"].isin(["DENY", "QUARANTINE"])])
 allowed = len(filtered[filtered["action"] == "ALLOW"])

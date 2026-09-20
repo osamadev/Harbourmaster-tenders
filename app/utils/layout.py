@@ -98,6 +98,12 @@ def inject_theme_css() -> None:
         .hm-step-done .hm-step-dot { background: var(--hm-teal); border-color: var(--hm-teal); color: #fff; }
         .hm-step-done .hm-step-label { color: var(--hm-text); }
         .hm-conn-done { background: var(--hm-teal); }
+        .hm-step-skipped .hm-step-dot { background: #fff; border-color: var(--hm-border);
+            border-style: dashed; color: #94A3B8; }
+        .hm-step-skipped .hm-step-label { color: #94A3B8; }
+        .hm-step-blocked .hm-step-dot { background: var(--hm-err-bg); border-color: #DC2626; color: var(--hm-err); }
+        .hm-step-blocked .hm-step-label { color: var(--hm-err); font-weight: 700; }
+        .hm-conn-blocked { background: #FCA5A5; }
         .hm-step-active .hm-step-dot {
             background: #fff; border-color: var(--hm-teal); color: var(--hm-teal);
             animation: hmPulse 1.8s infinite;
@@ -129,6 +135,57 @@ def inject_theme_css() -> None:
         }
         .hm-prog-meta { margin-top: 0.4rem; display: flex; gap: 0.4rem; flex-wrap: wrap; }
 
+        /* ---- Activity / execution timeline indicators ---- */
+        .hm-act-title { font-weight: 700; color: var(--hm-text); font-size: 0.95rem;
+            margin: 0.5rem 0 0.35rem 0; }
+        .hm-act { display: flex; flex-direction: column; }
+        .hm-act-row { display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.28rem 0; }
+        .hm-act-badge {
+            flex: 0 0 auto; width: 20px; height: 20px; border-radius: 50%; margin-top: 1px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.72rem; font-weight: 700; line-height: 1;
+            background: #FFFFFF; border: 2px solid var(--hm-border); color: #94A3B8;
+        }
+        .hm-act-body { flex: 1; min-width: 0; }
+        .hm-act-label { font-weight: 600; color: var(--hm-text); font-size: 0.9rem; }
+        .hm-act-detail { color: var(--hm-muted); font-size: 0.8rem; line-height: 1.25; }
+        .hm-act-done .hm-act-badge { background: var(--hm-ok-bg); border-color: #16A34A; color: var(--hm-ok); }
+        .hm-act-running .hm-act-badge {
+            background: #FFFFFF; border-color: var(--hm-teal); color: var(--hm-teal);
+            animation: hmPulse 1.4s infinite;
+        }
+        .hm-act-running .hm-act-label { color: var(--hm-teal); }
+        .hm-act-pending .hm-act-label { color: #94A3B8; }
+        .hm-act-pending .hm-act-detail { color: #CBD5E1; }
+        .hm-act-skipped .hm-act-badge { border-style: dashed; }
+        .hm-act-skipped .hm-act-label { color: #94A3B8; text-decoration: line-through; }
+        .hm-act-error .hm-act-badge { background: var(--hm-err-bg); border-color: #DC2626; color: var(--hm-err); }
+        .hm-act-error .hm-act-label { color: var(--hm-err); }
+        .hm-act-log { margin: 0.1rem 0 0 0; padding-left: 1.05rem; color: var(--hm-muted); font-size: 0.82rem; }
+        .hm-act-log li { margin: 0.12rem 0; }
+        /* Activity feed rows */
+        .hm-log { display: flex; flex-direction: column; }
+        .hm-log-row { display: flex; align-items: baseline; gap: 0.5rem; font-size: 0.82rem; padding: 0.12rem 0; }
+        .hm-log-ic { flex: 0 0 1rem; text-align: center; font-weight: 700; color: #94A3B8; }
+        .hm-log-text { color: var(--hm-text); }
+        .hm-log-started .hm-log-ic { color: var(--hm-teal); }
+        .hm-log-done .hm-log-ic { color: var(--hm-ok); }
+        .hm-log-error .hm-log-ic { color: var(--hm-err); }
+        .hm-log-revision .hm-log-ic { color: var(--hm-warn); }
+
+        /* ---- Redline (track-changes) for counter-clauses ---- */
+        .hm-red-doc {
+            background: #FFFFFF; border: 1px solid var(--hm-border); border-radius: 10px;
+            padding: 0.75rem 0.9rem; line-height: 1.6; color: var(--hm-text);
+            font-size: 0.9rem; white-space: pre-wrap; max-height: 360px; overflow-y: auto;
+        }
+        .hm-red-del { background: #FEE2E2; color: #991B1B; text-decoration: line-through;
+            border-radius: 3px; padding: 0 2px; }
+        .hm-red-ins { background: #DCFCE7; color: #166534; text-decoration: none;
+            border-radius: 3px; padding: 0 2px; }
+        .hm-red-legend { font-size: 0.78rem; color: var(--hm-muted); }
+        .hm-red-legend del, .hm-red-legend ins { margin-right: 0.4rem; }
+
         /* ---- Risk meter ---- */
         .hm-meter { display: flex; align-items: center; gap: 0.6rem; margin: 0.45rem 0 0.15rem 0; }
         .hm-meter-cap { font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
@@ -146,6 +203,32 @@ def inject_theme_css() -> None:
             box-shadow: var(--hm-shadow);
         }
         .hm-card-title { font-weight: 700; color: var(--hm-text); font-size: 0.95rem; margin-bottom: 0.5rem; }
+
+        /* ---- Finding cards (unified findings view) ---- */
+        .hm-finding {
+            border-top: 1px solid var(--hm-border); padding: 0.55rem 0 0.1rem 0; margin-top: 0.3rem;
+        }
+        .hm-finding:first-child { border-top: none; }
+        .hm-finding-head {
+            display: flex; justify-content: space-between; align-items: center;
+            gap: 0.6rem; flex-wrap: wrap;
+        }
+        .hm-finding-clause { font-weight: 700; color: var(--hm-text); font-size: 0.92rem; }
+        .hm-finding-head .hm-chip-row { margin: 0; }
+
+        /* ---- Compact metric strip (review summary band) ---- */
+        .hm-metric-strip {
+            display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.5rem 0 0.2rem 0;
+        }
+        .hm-metric-pill {
+            background: var(--hm-surface); border: 1px solid var(--hm-border);
+            border-radius: 10px; padding: 0.4rem 0.7rem; min-width: 92px;
+            box-shadow: 0 1px 2px rgba(15,39,66,.04);
+        }
+        .hm-metric-pill .v { font-weight: 700; color: var(--hm-text); font-size: 1.05rem;
+            font-variant-numeric: tabular-nums; line-height: 1.1; }
+        .hm-metric-pill .k { color: var(--hm-muted); text-transform: uppercase;
+            letter-spacing: 0.04em; font-size: 0.66rem; font-weight: 700; margin-top: 0.1rem; }
 
         /* ---- Metric tiles -> cards ---- */
         div[data-testid="stMetric"] {
@@ -282,6 +365,12 @@ def render_app_sidebar(
     show_demo: bool = False,
 ) -> None:
     """Standard sidebar: header, status, nav, optional extras, Phoenix link."""
+    # Kick off a one-time background warm-up of the MCP tools so the first Copilot query /
+    # MCP-backed dashboard read doesn't pay the npx spawn cost (no-op if already warmed).
+    from harbourmaster.copilot.warmup import warm_up_mcp
+
+    warm_up_mcp()
+
     with st.sidebar:
         st.markdown("### ⚓ Harbourmaster")
         st.markdown(
@@ -289,6 +378,9 @@ def render_app_sidebar(
             unsafe_allow_html=True,
         )
         render_status_chips(compact=True)
+        from app.utils.auth import render_user_chip
+
+        render_user_chip()
         st.divider()
         render_grouped_nav(current_page)
         if extra_blocks:
@@ -323,7 +415,30 @@ def _render_demo_callout() -> None:
             st.rerun()
 
 
-def render_phase_stepper(phase: str, *, live: dict[str, Any] | None = None) -> None:
+def render_phase_stepper(
+    phase: str, *, live: dict[str, Any] | None = None, blocked: bool = False
+) -> None:
+    # Guard-blocked terminal: the run halted at ingress, so Human Review never happened and
+    # the outcome is a block — render that honestly instead of a normal "Complete".
+    if blocked and phase == "complete":
+        spec = [
+            ("hm-step hm-step-done", "✓", "Submit"),
+            ("hm-step hm-step-done", "✓", "Guard"),
+            ("hm-step hm-step-skipped", "—", "Human Review"),
+            ("hm-step hm-step-blocked", "✕", "Blocked"),
+        ]
+        conns = ["hm-conn hm-conn-done", "hm-conn", "hm-conn hm-conn-blocked"]
+        parts: list[str] = []
+        for i, (cls, dot, label) in enumerate(spec):
+            parts.append(
+                f'<div class="{cls}"><div class="hm-step-dot">{dot}</div>'
+                f'<div class="hm-step-label">{label}</div></div>'
+            )
+            if i < len(spec) - 1:
+                parts.append(f'<div class="{conns[i]}"></div>')
+        st.markdown(f'<div class="hm-stepper">{"".join(parts)}</div>', unsafe_allow_html=True)
+        return
+
     steps = ["idle", "processing", "awaiting_review", "complete"]
     current = phase
     if current == "analysing":
@@ -331,12 +446,17 @@ def render_phase_stepper(phase: str, *, live: dict[str, Any] | None = None) -> N
     if current not in steps:
         current = "idle"
     idx = steps.index(current)
+    terminal = current == "complete"  # workflow finished — nothing is in progress
     parts: list[str] = []
     for i, step in enumerate(steps):
         if i < idx:
             cls, dot = "hm-step hm-step-done", "✓"
         elif i == idx:
-            cls, dot = "hm-step hm-step-active", str(i + 1)
+            # The final "Complete" step should read as done (✓), not pulse like an active step.
+            if terminal:
+                cls, dot = "hm-step hm-step-done", "✓"
+            else:
+                cls, dot = "hm-step hm-step-active", str(i + 1)
         else:
             cls, dot = "hm-step", str(i + 1)
         parts.append(
@@ -403,9 +523,12 @@ def render_summary_card(
     specialists_total: int = 5,
     review_id: str | None = None,
     phase: str | None = None,
+    blocked: bool = False,
 ) -> None:
     chips = []
-    if phase:
+    if blocked:
+        chips.append(_chip_html("Status: Blocked", "error"))
+    elif phase:
         chips.append(_chip_html(f"Phase: {PHASE_LABELS.get(phase, phase)}", "neutral"))
     if guard_verdict:
         level = "ok" if guard_verdict == "ALLOW" else "warn" if guard_verdict == "HUMAN_REVIEW" else "error"

@@ -19,8 +19,8 @@ Mode = Literal["local", "cloud"]
 PLACEHOLDER_PREFIXES = ("sk-phoenix-local", "sk-elastic-local", "your-", "changeme")
 
 DEFAULT_PHOENIX_CLOUD_URL = "https://app.phoenix.arize.com"
-DEFAULT_MCP_PHOENIX_PACKAGE = "@arizeai/phoenix-mcp@4.0.13"
-DEFAULT_MCP_ELASTIC_PACKAGE = "@elastic/mcp-server-elasticsearch@0.4.0"
+DEFAULT_MCP_PHOENIX_PACKAGE = "@arizeai/phoenix-mcp@4.0.14"
+DEFAULT_MCP_ELASTIC_PACKAGE = "@elastic/mcp-server-elasticsearch@0.3.1"
 
 KNOWN_KEYS = frozenset(
     {
@@ -31,6 +31,7 @@ KNOWN_KEYS = frozenset(
         "GEMINI_BASE_URL",
         "GEMINI_ANALYST_MODEL",
         "GEMINI_DRAFTER_MODEL",
+        "COPILOT_MODEL",
         "PHOENIX_BASE_URL",
         "PHOENIX_COLLECTOR_ENDPOINT",
         "PHOENIX_CONSOLE_URL",
@@ -153,6 +154,7 @@ class ResolvedSettings:
     gemini_base_url: str
     analyst_model: str
     drafter_model: str
+    copilot_model: str
     review_risk_threshold: float
     verifier_max_revisions: int
     negotiator_include_medium: bool
@@ -257,6 +259,12 @@ def resolve_settings(runtime_override: dict[str, Any] | None = None) -> Resolved
         api_base = f"http://localhost:{phoenix_port}"
 
     collector = str(raw.get("PHOENIX_COLLECTOR_ENDPOINT") or "").strip() or f"{api_base}/v1/traces"
+    # OTLP/HTTP span ingest must POST to the `/v1/traces` path. A bare base/space
+    # URL (e.g. https://app.phoenix.arize.com/s/<space>) yields 405 Method Not
+    # Allowed on export, so normalise it unless a custom OTLP path is given.
+    _coll = collector.rstrip("/")
+    if _coll and not _coll.endswith("/v1/traces"):
+        collector = f"{_coll}/v1/traces"
     console_url = _resolve_phoenix_console_url(api_base, phoenix_port, raw)
     phoenix_key = usable_secret(raw.get("PHOENIX_API_KEY"))
     phoenix_headers: dict[str, str] = {}
@@ -310,6 +318,10 @@ def resolve_settings(runtime_override: dict[str, Any] | None = None) -> Resolved
         gemini_base_url=str(raw.get("GEMINI_BASE_URL") or ""),
         analyst_model=str(raw.get("GEMINI_ANALYST_MODEL") or "gemini-2.5-pro"),
         drafter_model=str(raw.get("GEMINI_DRAFTER_MODEL") or "gemini-2.5-flash"),
+        copilot_model=(
+            str(raw.get("COPILOT_MODEL") or "").strip()
+            or str(raw.get("GEMINI_ANALYST_MODEL") or "gemini-2.5-pro")
+        ),
         review_risk_threshold=_as_float(raw.get("REVIEW_RISK_THRESHOLD"), 0.6),
         verifier_max_revisions=_as_int(raw.get("VERIFIER_MAX_REVISIONS"), 1),
         negotiator_include_medium=_as_bool(raw.get("NEGOTIATOR_INCLUDE_MEDIUM"), False),
@@ -403,6 +415,7 @@ def flat_config(snapshot: ResolvedSettings | None = None) -> dict[str, Any]:
         "GEMINI_DRAFTER_MODEL": s.drafter_model,
         "ANALYST_MODEL": s.analyst_model,
         "DRAFTER_MODEL": s.drafter_model,
+        "COPILOT_MODEL": s.copilot_model,
         "PHOENIX_MODE": s.phoenix.mode,
         "ELASTIC_MODE": s.elastic.mode,
         "PHOENIX_BASE_URL": s.phoenix.api_base_url,

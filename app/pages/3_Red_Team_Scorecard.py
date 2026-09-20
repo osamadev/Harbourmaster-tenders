@@ -14,8 +14,9 @@ _root = Path(__file__).resolve().parents[2]
 if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
+from app.utils.auth import require_auth  # noqa: E402
 from app.utils.layout import init_page, render_app_sidebar  # noqa: E402
-from scripts.run_redteam import load_cases, run_case  # noqa: E402
+from scripts.run_redteam import load_cases, run_case, sync_with_phoenix  # noqa: E402
 
 cases = load_cases()
 
@@ -24,6 +25,7 @@ init_page(
     icon="🛡️",
     subtitle="Adversarial testing with guard verdicts and Phoenix experiment logging",
 )
+require_auth()
 
 def _redteam_sidebar() -> None:
     st.metric("Cases Loaded", len(cases))
@@ -48,8 +50,19 @@ if st.button("Run Scorecard", type="primary"):
         results.append(result)
 
     progress.empty()
+    with st.spinner("Syncing dataset + experiment to Phoenix…"):
+        try:
+            st.session_state.redteam_phoenix_url = sync_with_phoenix(results)
+        except Exception:  # noqa: BLE001
+            st.session_state.redteam_phoenix_url = None
     st.session_state.redteam_results = results
     st.rerun()
+
+if st.session_state.get("redteam_phoenix_url"):
+    st.caption(
+        f"Synced to Phoenix as dataset/experiment — ask the Governance Copilot "
+        f"for *“the latest red-team experiment and key failures.”*"
+    )
 
 st.markdown(f"**{len(cases)} test cases** loaded from `configs/redteam_cases.yaml`")
 

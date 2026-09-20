@@ -1,5 +1,7 @@
 """The Harbourmaster advanced multi-agent tender-review graph."""
 
+import contextvars
+import functools
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from langgraph.checkpoint.memory import MemorySaver
@@ -19,7 +21,7 @@ from harbourmaster.agents import (
 from harbourmaster.elastic_store import index_review_artifact, retrieval_context_for_clauses
 from harbourmaster.guard import evaluate_content
 from harbourmaster.state import ReviewState
-from harbourmaster.telemetry import record_inspection_span
+from harbourmaster.telemetry import agent_span, record_inspection_span, set_span_output
 
 
 def _emit(event: dict) -> None:
@@ -30,40 +32,96 @@ def _emit(event: dict) -> None:
         return
 
 
-def segment_node(state: ReviewState) -> dict:
-    """Segment the tender into stable clauses."""
-    tender_text = state["tender_text"]
-    guard = evaluate_content(tender_text, context="tender_input")
-    _emit(
-        {
-            "type": "guard_complete",
-            "verdict": guard.verdict,
-            "blocked": guard.blocked,
-        }
-    )
+def _node(name: str, kind: str = "CHAIN"):
+    """Wrap a node so its LLM + inspection spans nest under one ambient node span.
+
+    The raw Gemini calls (OpenAI SDK) and ``record_inspection_span`` spans inside
+    the node attach to this span via OTel context, giving Phoenix a real tree
+    (review root → node → model call) instead of a flat set of root spans.
+    """
+
+    def decorator(fn):
+        @functools.wraps(fn)
+        def wrapper(state: ReviewState) -> dict:
+            with agent_span(f"node:{name}", kind=kind, attributes={"graph.node": name}) as span:
+                result = fn(state)
+                set_span_output(span, result)
+                return result
+
+        return wrapper
+
+    return decorator
+
+
+@_node("guard", kind="GUARDRAIL")
+def guard_node(state: ReviewState) -> dict:
+    """Inline security guard — runs first, before any other LLM work.
+
+    A DENY here halts the workflow (see ``route_after_guard``) so the flagged content never
+    reaches segmentation or the specialist analysts.
+    """
+    guard = evaluate_content(state["tender_text"], context="tender_input")
+    _emit({"type": "guard_complete", "verdict": guard.verdict, "blocked": guard.blocked})
     record_inspection_span(
         "harbourmaster.guard",
         {**guard.to_inspection(), "agent_id": "governance-guard-v1"},
         direction="guard",
     )
-    clauses, resp = segment_tender_clauses(state["tender_text"])
-    _emit({"type": "segment_complete", "clause_count": len(clauses)})
-    retrieval_context = retrieval_context_for_clauses(clauses)
-    _emit({"type": "retrieval_complete", "snippet_count": len(retrieval_context)})
-    blocked = guard.blocked
-    reports = [guard.to_inspection(), resp.inspection]
     return {
-        "clauses": clauses,
-        "retrieval_context": retrieval_context,
-        "inspection_reports": reports,
-        "blocked": blocked,
-        "block_reason": f"Guard verdict: {guard.verdict}" if blocked else "",
+        "blocked": guard.blocked,
+        "guard_verdict": guard.verdict,
+        "block_reason": f"Guard verdict: {guard.verdict}" if guard.blocked else "",
+        "inspection_reports": [guard.to_inspection()],
         "revision_round": 0,
         "pending_revisions": {},
         "specialist_findings": {},
     }
 
 
+def route_after_guard(state: ReviewState) -> str:
+    """Hard-halt on a guard DENY; otherwise proceed to segmentation."""
+    if state.get("guard_verdict") == "DENY" or state.get("blocked"):
+        return "blocked"
+    return "segment"
+
+
+@_node("blocked", kind="GUARDRAIL")
+def blocked_node(state: ReviewState) -> dict:
+    """Terminal node for a guard-denied tender — records the block, no LLM calls."""
+    reason = state.get("block_reason") or "Guard verdict: DENY"
+    inspection = next(iter(state.get("inspection_reports", [])), {})
+    categories = inspection.get("categories") or []
+    cat_text = f" Categories: {', '.join(str(c) for c in categories)}." if categories else ""
+    risk = float(inspection.get("risk_score", 1.0) or 1.0)
+    _emit({"type": "blocked", "reason": reason})
+    return {
+        "blocked": True,
+        # Surface the guard's risk as the overall risk so the UI doesn't read 0.00 for a
+        # denied document.
+        "overall_risk": risk,
+        "draft_summary": f"BLOCKED by governance guard ({reason}).{cat_text} "
+        "Specialist analysis was not run because the input was denied at ingress.",
+        "findings": {"overall_risk": risk, "findings": []},
+        "verified_findings": [],
+    }
+
+
+@_node("segment")
+def segment_node(state: ReviewState) -> dict:
+    """Segment the (guard-cleared) tender into stable clauses and retrieve context."""
+    clauses, resp = segment_tender_clauses(state["tender_text"])
+    _emit({"type": "segment_complete", "clause_count": len(clauses)})
+    retrieval_context = retrieval_context_for_clauses(clauses)
+    _emit({"type": "retrieval_complete", "snippet_count": len(retrieval_context)})
+    reports = list(state.get("inspection_reports", [])) + [resp.inspection]
+    return {
+        "clauses": clauses,
+        "retrieval_context": retrieval_context,
+        "inspection_reports": reports,
+    }
+
+
+@_node("specialists")
 def specialists_node(state: ReviewState) -> dict:
     """Run specialist analysts (full run or revision pass)."""
     clauses = state.get("clauses", [])
@@ -85,9 +143,14 @@ def specialists_node(state: ReviewState) -> dict:
         _emit({"type": "specialist_start", "specialist": specialist, "revision_round": revision_round})
 
     with ThreadPoolExecutor(max_workers=len(targets) or 1) as executor:
+        # Run each worker inside a fresh copy of the current context so the
+        # per-session Gemini key (a ContextVar) propagates into the thread pool.
+        # A separate copy per task is required — one Context can't be entered by
+        # two threads at once.
         futures = {
             executor.submit(
-                analyse_with_specialist,
+                contextvars.copy_context().run,
+                _run_specialist,
                 specialist,
                 clauses,
                 pending.get(specialist),
@@ -122,6 +185,26 @@ def specialists_node(state: ReviewState) -> dict:
     }
 
 
+def _run_specialist(specialist: str, *args):
+    """Worker entry point: wrap each analyst call in its own ambient span.
+
+    Runs inside a copied context (the ``node:specialists`` span is current), so
+    this ``agent:<specialist>`` span nests under it and the analyst's Gemini call
+    nests under this — giving a per-analyst subtree in Phoenix.
+    """
+    clauses = args[0] if args else []
+    with agent_span(
+        f"agent:{specialist}",
+        kind="AGENT",
+        attributes={"agent.specialist": specialist},
+        input_value=clauses,
+    ) as span:
+        findings, resp = analyse_with_specialist(specialist, *args)
+        set_span_output(span, findings)
+        return findings, resp
+
+
+@_node("aggregate")
 def aggregate_node(state: ReviewState) -> dict:
     """Deterministically merge specialist outputs and compute overall risk."""
     specialist_findings = state.get("specialist_findings", {})
@@ -194,6 +277,7 @@ def aggregate_node(state: ReviewState) -> dict:
     }
 
 
+@_node("verifier", kind="EVALUATOR")
 def verifier_node(state: ReviewState) -> dict:
     """Verify merged findings; request revisions when needed."""
     clauses = state.get("clauses", [])
@@ -253,6 +337,7 @@ def route_after_verifier(state: ReviewState) -> str:
     return "governance"
 
 
+@_node("revision")
 def revision_node(state: ReviewState) -> dict:
     """Increment revision round before re-running specialists."""
     round_num = state.get("revision_round", 0) + 1
@@ -261,10 +346,13 @@ def revision_node(state: ReviewState) -> dict:
     return {"revision_round": round_num}
 
 
+@_node("governance")
 def governance_node(state: ReviewState) -> dict:
     """Pass-through node used for governance routing."""
     if state.get("blocked"):
         route = "human_review (guard blocked)"
+    elif state.get("guard_verdict") == "HUMAN_REVIEW":
+        route = "human_review (guard flagged)"
     elif state.get("overall_risk", 0.0) >= config.REVIEW_RISK_THRESHOLD:
         route = "human_review (risk threshold)"
     else:
@@ -276,6 +364,8 @@ def governance_node(state: ReviewState) -> dict:
 def route_governance(state: ReviewState) -> str:
     """Decide whether workflow needs human review."""
     if state.get("blocked"):
+        return "human_review"
+    if state.get("guard_verdict") == "HUMAN_REVIEW":
         return "human_review"
     if state.get("overall_risk", 0.0) >= config.REVIEW_RISK_THRESHOLD:
         return "human_review"
@@ -304,6 +394,7 @@ def human_review_node(state: ReviewState) -> dict:
     return {"review_decision": decision}
 
 
+@_node("negotiator")
 def negotiator_node(state: ReviewState) -> dict:
     """Draft counter-clauses for high-risk findings."""
     decision = state.get("review_decision") or {}
@@ -323,6 +414,7 @@ def negotiator_node(state: ReviewState) -> dict:
     return {"counter_clauses": counter_clauses, "inspection_reports": reports}
 
 
+@_node("draft")
 def draft_node(state: ReviewState) -> dict:
     """Produce reviewer-facing summary (or record rejection)."""
     decision = state.get("review_decision") or {}
@@ -419,6 +511,8 @@ def build_graph():
     """Compile the advanced multi-agent review graph."""
     g = StateGraph(ReviewState)
 
+    g.add_node("guard", guard_node)
+    g.add_node("blocked", blocked_node)
     g.add_node("segment", segment_node)
     g.add_node("specialists", specialists_node)
     g.add_node("aggregate", aggregate_node)
@@ -429,7 +523,13 @@ def build_graph():
     g.add_node("negotiator", negotiator_node)
     g.add_node("draft", draft_node)
 
-    g.add_edge(START, "segment")
+    g.add_edge(START, "guard")
+    g.add_conditional_edges(
+        "guard",
+        route_after_guard,
+        {"blocked": "blocked", "segment": "segment"},
+    )
+    g.add_edge("blocked", END)
     g.add_edge("segment", "specialists")
     g.add_edge("specialists", "aggregate")
     g.add_edge("aggregate", "verifier")
